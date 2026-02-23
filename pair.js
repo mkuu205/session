@@ -49,7 +49,7 @@ router.get('/', async (req, res) => {
             if (!client.authState.creds.registered) {
                 await delay(1500);
                 num = num.replace(/[^0-9]/g, '');
-                const custom = "KISHBOT";
+                const custom = "KISHBOT1";
                 const code = await client.requestPairingCode(num, custom);
 
                 if (!res.headersSent) {
@@ -62,7 +62,7 @@ router.get('/', async (req, res) => {
                 const { connection, lastDisconnect } = s;
                 
                 if (connection === 'open') {
-                    await client.groupAcceptInvite("DefN96lXQ4i5iO1wDDeu2C");
+                    await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
                     await client.sendMessage(client.user.id, { 
                         text: "Generating your session wait a moment..." 
                     });
