@@ -72,7 +72,7 @@ router.get('/', async (req, res) => {
 
                     // Send message after session
                     await client.sendMessage(client.user.id, { 
-                        text: "```Raven has been linked to your WhatsApp account! Do not share this session_id with anyone.\n\nCopy and paste it on the SESSION string during deploy as it will be used for authentication.\n\nGoodluck 🎉.```" 
+                        text: "```Kish-MD has been linked to your WhatsApp account! Do not share this session_id with anyone.\n\nCopy and paste it on the SESSION string during deploy as it will be used for authentication.\n\nGoodluck 🎉.```" 
                     }, { quoted: session });
                     
                     await delay(100);
