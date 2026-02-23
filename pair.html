@@ -71,6 +71,7 @@
       border-left: 2px solid #4998FF;
       color: #5e5e5e;
       transition: all 0.2s ease-in-out;
+      box-sizing: border-box; /* Added to prevent stretching */
     }
 
     .input-container input:focus {
@@ -91,6 +92,7 @@
       width: 100%;
       border-radius: 0 1rem 1rem 0;
       transition: all 0.2s ease-in-out;
+      box-sizing: border-box; /* Added to prevent stretching */
     }
 
     .input-container button:hover {
@@ -130,7 +132,7 @@
             <h6>Enter Your Number with Country Code.</h6>
             <h6>Made with ❤️ </h6>
             <div class="input-container">
-              <input placeholder="2541466xxx" type="number" id="number" placeholder="Enter your Phone Pumber with Country Code" name="">
+              <input placeholder="254 7XX XXX XXX" type="text" id="number" name="">
               <button id="submit">Submit</button>
             </div>
             
@@ -159,7 +161,7 @@
       obj.size = "5";
       setTimeout(() => {
         obj.innerText = text;
-        obj.style = "color:white;font-weight-bold";
+        obj.style = "color:#00BFFF;font-weight:bold";
         obj.size = "5";
       }, 500);
     }
@@ -191,10 +193,9 @@
         a.innerHTML = '<a style="color:white;font-weight:bold">Please Wait...</a><br><br>';
         let { data } = await axios(`/code?number=${Kish}`);
         let code = data.code || "Service Unavailable";
-        a.innerHTML = '<font id="copy" onclick="Copy()" style="color:red;font-weight:bold" size="5">CODE: <span style="color:white;font-weight:bold">' + code + '</span></font><br><br><br>';
+        a.innerHTML = '<font id="copy" onclick="Copy()" style="color:#00BFFF;font-weight:bold" size="5">CODE: <span style="color:white;font-weight:bold">' + code + '</span></font><br><br><br>';
       }
     });
   </script>
 </body>
 </html>
-  
