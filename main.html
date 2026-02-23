@@ -2,84 +2,228 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>RAVEN-BOT SESSION</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KISH-MD</title>
+  <link rel="shortcut icon" href="" type="image/x-icon">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --neon-green: #00ff9d;
+      --neon-blue: #00f2ff;
+      --neon-purple: #b400ff;
+      --dark-bg: #0a0a0a;
+    }
+
     body {
+      background-color: black;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       height: 100vh;
       margin: 0;
-      background-image: url("https://files.catbox.moe/0xmnxl.jpg");
+      color: white;
+      font-family: Arial, sans-serif;
     }
 
-    .btn {
-      --color: #e5f5f1;
-      --color2: rgb(0, 0, 0);
-      width: 200px;
-      padding: 0.8em 1.75em;
-      background-color: green;
-      border-radius: 6px;
-      border: .3px solid var(--color);
-      transition: .5s;
+    .button-container {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h3 {
+      margin-top: -40px;
+    }
+
+    .button {
+      width: 140px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0px 15px;
+      background-color: red;
+      border-radius: 10px;
+      border: none;
+      color: white;
       position: relative;
-      overflow: hidden;
       cursor: pointer;
-      z-index: 1;
-      font-weight: 300;
-      font-size: 17px;
-      font-family: 'Roboto', 'Segoe UI', sans-serif;
-      text-transform: uppercase;
-      color: var(--color);
-      margin-bottom: 24px;
+      font-weight: 900;
+      transition-duration: .2s;
+      background: linear-gradient(0deg, #000, #272727);
+      text-decoration: none;
     }
 
-    .btn::after, .btn::before {
-      content: '';
-      display: block;
-      height: 100%;
+    footer {
+      position: fixed;
+      bottom: 0;
       width: 100%;
-      transform: skew(90deg) translate(-50%, -50%);
+      background-color: #222;
+      color: #fff;
+      padding: 10px 0;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .button:before, .button:after {
+      content: '';
       position: absolute;
-      inset: 50%;
-      left: 25%;
+      left: -2px;
+      top: -2px;
+      border-radius: 10px;
+      background: linear-gradient(45deg, #48ff00, #15ff00, #000000,#000000, #ff0000);
+      background-size: 400%;
+      width: calc(100% + 4px);
+      height: calc(100% + 4px);
       z-index: -1;
-      transition: .5s ease-out;
-      background-color: var(--color);
+      animation: steam 10s linear infinite;
     }
 
-    .btn::before {
-      top: -50%;
-      left: -25%;
-      transform: skew(90deg) rotate(180deg) translate(-50%, -50%);
+    @keyframes steam {
+      0% {
+        background-position: 0 0;
+      }
+      50% {
+        background-position: 400% 0;
+      }
+      100% {
+        background-position: 0 0;
+      }
     }
 
-    .btn:hover::before {
-      transform: skew(45deg) rotate(180deg) translate(-50%, -50%);
+    .button:after {
+      filter: blur(50px);
     }
 
-    .btn:hover::after {
-      transform: skew(45deg) translate(-50%, -50%);
+    .button span {
+      z-index: 1;
     }
 
-    .btn:hover {
-      color: var(--color2);
-    }
-
-    .btn:active {
-      filter: brightness(.7);
-      transform: scale(.98);
+    /* Security notice style */
+    .block-notice {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(255,0,0,0.7);
+      color: white;
+      text-align: center;
+      padding: 10px;
+      z-index: 99999;
+      display: none;
+      font-family: 'Share Tech Mono', monospace;
+      font-weight: bold;
     }
   </style>
+  <script>
+    // Check session storage for verification
+    document.addEventListener('DOMContentLoaded', function() {
+      if(!sessionStorage.getItem('forkVerified')) {
+        window.location.href = '/fork-check';
+      }
+    });
+
+    // ===== SECURITY CONFIGURATION =====
+    const SHOW_ALERTS = false; // Set to true to show alert messages
+    
+    // Silent blocking notification system
+    function showBlockNotice(message) {
+      if (!SHOW_ALERTS) {
+        const notice = document.getElementById('blockNotice');
+        notice.textContent = message;
+        notice.style.display = 'block';
+        setTimeout(() => notice.style.display = 'none', 2000);
+      }
+    }
+
+    // ===== ANTI-COPY PROTECTION =====
+    // Disable right-click
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      if (SHOW_ALERTS) alert('Right-click is disabled');
+      else showBlockNotice('Right-click disabled');
+    });
+
+    // Disable text selection
+    document.addEventListener('selectstart', function(e) {
+      e.preventDefault();
+    });
+
+    // Disable keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+      // Ctrl+U (View source)
+      if (e.ctrlKey && e.keyCode === 85) {
+        e.preventDefault();
+        if (SHOW_ALERTS) alert('View source is disabled');
+        else showBlockNotice('Source viewing disabled');
+      }
+      // Ctrl+Shift+I/F12 (DevTools)
+      else if ((e.ctrlKey && e.shiftKey && e.keyCode === 73) || e.keyCode === 123) {
+        e.preventDefault();
+        if (SHOW_ALERTS) alert('Developer tools are disabled');
+        else showBlockNotice('Developer tools restricted');
+      }
+      // Ctrl+C (Copy)
+      else if (e.ctrlKey && e.keyCode === 67) {
+        e.preventDefault();
+        if (SHOW_ALERTS) alert('Copying is disabled');
+        else showBlockNotice('Copy protection active');
+      }
+      // Ctrl+S (Save page)
+      else if (e.ctrlKey && e.keyCode === 83) {
+        e.preventDefault();
+        if (SHOW_ALERTS) alert('Page saving is disabled');
+        else showBlockNotice('Save function disabled');
+      }
+    });
+
+    // Anti-iframe protection
+    if (window.top !== window.self) {
+      window.top.location = window.self.location;
+    }
+
+    // ===== MAIN BOT SCRIPT =====
+    // Function to display current time
+    function updateTime() {
+      const now = new Date();
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      const seconds = now.getSeconds().toString().padStart(2, '0');
+      const time = `${hours}:${minutes}:${seconds}`;
+      document.getElementById('clock').innerText = time;
+    }
+
+    // Update the clock every second
+    setInterval(updateTime, 1000);
+    updateTime();
+
+    // Set current year in footer
+    document.getElementById('currentYear').textContent = new Date().getFullYear();
+  </script>
 </head>
 <body>
+  <!-- Security Notice (for silent blocking) -->
+  <div id="blockNotice" class="block-notice">Security restriction activated</div>
 
-  <button onclick="window.open(`/pair`)" class="btn">PAIR CODE</button>
-  <button onclick="window.open(`/qr`)" class="btn">QR SCAN</button>
-  <button onclick="window.open(`https://github.com/HunterNick2/RAVEN-BOT/fork`)" class="btn">REPO FORK</button>
+  <!-- Main Bot Content -->
+  <div class="button-container">
+    <h3>SELECT AN OPTION </h3>
+    <div></div>
+    
+    <button onclick="window.open(`/pair`)" class="btn">PAIR CODE</button>
+    <button onclick="window.open(`/qr`)" class="btn">QR SCAN</button>
+    <a href="https://github.com/Brashokish/Kish-MD/fork" class="button" target="_blank"> <span>FORK KISH-MD</span> </a> <br>
+    <a href="https://whatsapp.com/channel/0029VabXGW8BKfhwAKCfBp0o" class="button" target="_blank"> <span>WhatsApp</span> </a> <br>
 
+    <p>FACE ANY ISSUES CLICK ERROR BUTTON</p>
+    <a href="https://wa.me/254796307638" class="button" target="_blank"> <span>ERROR</span> </a> <br>
 
+    <footer>
+      KISH-MD &copy; <span id="currentYear"></span>
+    </footer>
+    <div id="clock"></div>
+  </div>
 </body>
 </html>
