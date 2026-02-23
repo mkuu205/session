@@ -11,6 +11,10 @@ app.use('/code', code);
 app.use('/pair',async (req, res, next) => {
 res.sendFile(__path + '/pair.html')
 })
+
+app.get('/fork-check', (req, res) => {
+  res.sendFile(path.join(__dirname, 'fork-check.html'));
+});
 app.use('/',async (req, res, next) => {
 res.sendFile(__path + '/main.html')
 })
