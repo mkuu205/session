@@ -1,22 +1,27 @@
 const express = require('express');
 const path = require('path');
+const bodyParser = require('body-parser');
+
 const app = express();
-const bodyParser = require("body-parser");
 const port = process.env.PORT || 8000;
 
-let server = require('./qr');
-let code = require('./pair');
+// modules
+const qrRoutes = require('./qr');
+const codeRoutes = require('./pair');
 
 require('events').EventEmitter.defaultMaxListeners = 500;
 
-/* ---------- middleware FIRST ---------- */
+/* -------------------- MIDDLEWARE FIRST -------------------- */
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-/* ---------- routes ---------- */
-app.use('/qr', server);
-app.use('/code', code);
+/* -------------------- ROUTES -------------------- */
 
+// API routes
+app.use('/qr', qrRoutes);
+app.use('/code', codeRoutes);
+
+// HTML pages
 app.get('/pair', (req, res) => {
   res.sendFile(path.join(__dirname, 'pair.html'));
 });
@@ -29,7 +34,13 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'main.html'));
 });
 
-/* ---------- start ---------- */
+/* -------------------- ERROR HANDLER (IMPORTANT FOR RENDER) -------------------- */
+app.use((err, req, res, next) => {
+  console.error("SERVER ERROR:", err.stack);
+  res.status(500).send("Internal Server Error");
+});
+
+/* -------------------- START SERVER -------------------- */
 app.listen(port, () => {
   console.log(`📡 Connected on http://localhost:${port}`);
 });
