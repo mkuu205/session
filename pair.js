@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
                 if (connection === 'open') {
                 await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
                 await client.sendMessage(client.user.id, {text: "Generating your session wait amoment..."});
-                    await delay(5000);
+                    await delay(10000); 
                     const data = fs.readFileSync(__dirname + `/temp/${id}/creds.json`);
                     await delay(8000);
                     const b64data = Buffer.from(data).toString('base64');
