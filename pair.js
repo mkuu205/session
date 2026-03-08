@@ -1,10 +1,10 @@
-const PastebinAPI = require('pastebin-js')
-const pastebin = new PastebinAPI('EMWTMkQAVfJa9kM-MRUrxd5Oku1U7pgL')
+const PastebinAPI = require('pastebin-js');
+const pastebin = new PastebinAPI('EMWTMkQAVfJa9kM-MRUrxd5Oku1U7pgL');
 
-const { makeid } = require('./id')
-const express = require('express')
-const fs = require('fs')
-const pino = require('pino')
+const { makeid } = require('./id');
+const express = require('express');
+const fs = require('fs');
+const pino = require('pino');
 
 const {
 default: makeWASocket,
@@ -12,31 +12,33 @@ useMultiFileAuthState,
 Browsers,
 delay,
 makeCacheableSignalKeyStore
-} = require("@whiskeysockets/baileys")
+} = require("@whiskeysockets/baileys");
 
-const router = express.Router()
+const router = express.Router();
 
 function removeFile(path) {
-if (!fs.existsSync(path)) return
-fs.rmSync(path, { recursive: true, force: true })
+if (!fs.existsSync(path)) return;
+fs.rmSync(path, { recursive: true, force: true });
 }
 
 router.get('/', async (req, res) => {
 
-const id = makeid()
-let num = req.query.number
+const id = makeid();
+let num = req.query.number;
 
 if (!num) {
-return res.send({ error: "Number query missing. Use ?number=254XXXXXXXXX" })
+return res.send({
+error: "Missing number. Example: ?number=254712345678"
+});
 }
 
-num = num.replace(/[^0-9]/g, '')
+num = num.replace(/[^0-9]/g, '');
 
 async function RAVEN() {
 
-const sessionPath = `./temp/${id}`
+const sessionPath = `./temp/${id}`;
 
-const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
 try {
 
@@ -45,102 +47,115 @@ auth: {
 creds: state.creds,
 keys: makeCacheableSignalKeyStore(
 state.keys,
-pino({ level: "fatal" })
+pino({ level: 'fatal' })
 )
 },
 printQRInTerminal: false,
-logger: pino({ level: "silent" }),
-browser: Browsers.windows("Edge")
-})
+logger: pino({ level: 'silent' }),
+browser: Browsers.windows('Edge')
+});
 
-client.ev.on("creds.update", saveCreds)
+client.ev.on('creds.update', saveCreds);
 
-client.ev.on("connection.update", async (update) => {
+client.ev.on('connection.update', async (update) => {
 
-const { connection, lastDisconnect } = update
+const { connection, lastDisconnect } = update;
 
 if (connection === "connecting") {
-console.log("🔄 Connecting to WhatsApp...")
+console.log("🔄 Connecting to WhatsApp...");
 }
 
 if (connection === "open") {
 
-console.log("✅ Connection Open")
+console.log("✅ Connection Open");
 
-await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv")
+try {
+await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
+} catch (e) {
+console.log("Group join skipped:", e?.message);
+}
 
 await client.sendMessage(client.user.id, {
 text: "Generating your session, please wait..."
-})
+});
 
-await delay(50000)
+await delay(50000);
 
-const data = fs.readFileSync(`${sessionPath}/creds.json`)
+const credsPath = `${sessionPath}/creds.json`;
 
-const b64data = Buffer.from(data).toString("base64")
+if (!fs.existsSync(credsPath)) {
+console.log("creds.json not found");
+return;
+}
+
+const data = fs.readFileSync(credsPath);
+const b64data = Buffer.from(data).toString("base64");
 
 const session = await client.sendMessage(client.user.id, {
 text: b64data
-})
+});
 
 await client.sendMessage(client.user.id, {
-text: "```Kish-MD has been linked to your WhatsApp account.\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉```"
-}, { quoted: session })
+text: "`Kish-MD has been linked to your WhatsApp account!\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉`"
+}, { quoted: session });
 
-await delay(500)
+await delay(2000);
 
-await client.ws.close()
+await client.ws.close();
 
-removeFile(sessionPath)
-
+removeFile(sessionPath);
 }
 
 if (connection === "close") {
 
-const code = lastDisconnect?.error?.output?.statusCode
+const code = lastDisconnect?.error?.output?.statusCode;
+
+console.log("Connection closed:", code);
 
 if (code !== 401) {
-console.log("🔁 Reconnecting...")
-await delay(5000)
-RAVEN()
+console.log("🔁 Reconnecting...");
+await delay(5000);
+RAVEN();
 } else {
-removeFile(sessionPath)
+removeFile(sessionPath);
 }
 
 }
 
-})
+});
 
 if (!client.authState.creds.registered) {
 
-await delay(4000)
+await delay(4000);
 
-const custom = "KISHTECH"
+const custom = "KISHTECH";
 
-const code = await client.requestPairingCode(num, custom)
+const code = await client.requestPairingCode(num, custom);
 
 if (!res.headersSent) {
-res.send({ code })
+res.send({ code });
 }
 
 }
 
 } catch (err) {
 
-console.log("service restarted", err)
+console.log("service restarted", err);
 
-removeFile(sessionPath)
+removeFile(sessionPath);
 
 if (!res.headersSent) {
-res.send({ code: "Service Currently Unavailable" })
+res.send({
+code: "Service Currently Unavailable"
+});
 }
 
 }
 
 }
 
-await RAVEN()
+await RAVEN();
 
-})
+});
 
-module.exports = router
+module.exports = router;
