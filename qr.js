@@ -53,13 +53,13 @@ router.get('/', async (req, res) => {
 				if (qr) await res.end(await QRCode.toBuffer(qr));
 				if (connection == "open") {
 				await client.sendMessage(client.user.id, { text: 'Generating your session_id..wait a moment' });
-					await delay(10000); 
+					await delay(50000);
 					let data = fs.readFileSync(__dirname + `/temp/${id}/creds.json`);
 					await delay(8000);
 				   let b64data = Buffer.from(data).toString('base64');
 				   let session = await client.sendMessage(client.user.id, { text: '' + b64data });
 	
-let Textt = "```Kish-MD has been linked to your WhatsApp account! Do not share this session_id with anyone.\n\nCopy and paste it on the SESSION string during deploy as it will be used for authentication.\n\nGoodluck 🎉.```"
+let Textt = "```Kish-MD been linked to your WhatsApp account! Do not share this session_id with anyone.\n\nCopy and paste it on the SESSION string during deploy as it will be used for authentication.\n\nGoodluck 🎉.```"
 	
 			await client.sendMessage(client.user.id,{ text: Textt }, {quoted: session })
 
