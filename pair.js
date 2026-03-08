@@ -11,8 +11,7 @@ default: makeWASocket,
 useMultiFileAuthState,
 Browsers,
 delay,
-makeCacheableSignalKeyStore,
-fetchLatestBaileysVersion
+makeCacheableSignalKeyStore
 } = require("@whiskeysockets/baileys")
 
 const router = express.Router()
@@ -28,9 +27,7 @@ const id = makeid()
 let num = req.query.number
 
 if (!num) {
-return res.send({
-error: "Provide number like ?number=254712345678"
-})
+return res.send({ error: "Number query missing. Use ?number=254XXXXXXXXX" })
 }
 
 num = num.replace(/[^0-9]/g, '')
@@ -43,13 +40,7 @@ const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
 try {
 
-const { version } = await fetchLatestBaileysVersion()
-
 const client = makeWASocket({
-
-version,
-printQRInTerminal: false,
-
 auth: {
 creds: state.creds,
 keys: makeCacheableSignalKeyStore(
@@ -57,10 +48,9 @@ state.keys,
 pino({ level: "fatal" })
 )
 },
-
+printQRInTerminal: false,
 logger: pino({ level: "silent" }),
 browser: Browsers.windows("Edge")
-
 })
 
 client.ev.on("creds.update", saveCreds)
@@ -75,19 +65,15 @@ console.log("🔄 Connecting to WhatsApp...")
 
 if (connection === "open") {
 
-console.log("✅ Connected")
+console.log("✅ Connection Open")
 
-try {
 await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv")
-} catch (e) {
-console.log("Group join skipped:", e.message)
-}
 
 await client.sendMessage(client.user.id, {
 text: "Generating your session, please wait..."
 })
 
-await delay(40000)
+await delay(50000)
 
 const data = fs.readFileSync(`${sessionPath}/creds.json`)
 
@@ -98,10 +84,10 @@ text: b64data
 })
 
 await client.sendMessage(client.user.id, {
-text: "```Kish-MD has been linked to your WhatsApp account.\n\nDo NOT share this session id.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉```"
+text: "```Kish-MD has been linked to your WhatsApp account.\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉```"
 }, { quoted: session })
 
-await delay(1000)
+await delay(500)
 
 await client.ws.close()
 
@@ -111,11 +97,10 @@ removeFile(sessionPath)
 
 if (connection === "close") {
 
-const status = lastDisconnect?.error?.output?.statusCode
+const code = lastDisconnect?.error?.output?.statusCode
 
-console.log("Connection closed:", status)
-
-if (status !== 401) {
+if (code !== 401) {
+console.log("🔁 Reconnecting...")
 await delay(5000)
 RAVEN()
 } else {
@@ -128,9 +113,11 @@ removeFile(sessionPath)
 
 if (!client.authState.creds.registered) {
 
-await delay(5000)
+await delay(4000)
 
-const code = await client.requestPairingCode(num, "KISHTECH")
+const custom = "KISHTECH"
+
+const code = await client.requestPairingCode(num, custom)
 
 if (!res.headersSent) {
 res.send({ code })
@@ -140,14 +127,12 @@ res.send({ code })
 
 } catch (err) {
 
-console.log("Service restarted", err)
+console.log("service restarted", err)
 
 removeFile(sessionPath)
 
 if (!res.headersSent) {
-res.send({
-code: "Service temporarily unavailable"
-})
+res.send({ code: "Service Currently Unavailable" })
 }
 
 }
