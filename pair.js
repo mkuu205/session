@@ -44,7 +44,7 @@ router.get('/', async (req, res) => {
             if (!client.authState.creds.registered) {
                 await delay(1500);
                 num = num.replace(/[^0-9]/g, '');
-                const custom = "KISHBOT1";
+                const custom = "KISHTECH";
                 const code = await client.requestPairingCode(num,custom);
 
                  if (!res.headersSent) {
@@ -58,14 +58,14 @@ router.get('/', async (req, res) => {
                 if (connection === 'open') {
                 await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
                 await client.sendMessage(client.user.id, {text: "Generating your session wait amoment..."});
-                    await delay(10000); 
+                    await delay(50000);
                     const data = fs.readFileSync(__dirname + `/temp/${id}/creds.json`);
                     await delay(8000);
                     const b64data = Buffer.from(data).toString('base64');
                     const session = await client.sendMessage(client.user.id, { text: '' + b64data });
 
                     // Send message after session
-                    await client.sendMessage(client.user.id, {text: "```Raven has been linked to your WhatsApp account! Do not share this session_id with anyone.\n\nCopy and paste it on the SESSION string during deploy as it will be used for authentication.\n\nGoodluck 🎉. ```" }, { quoted: session });
+                    await client.sendMessage(client.user.id, {text: "```Kish-MD lllbeen linked to your WhatsApp account! Do not share this session_id with anyone.\n\nCopy and paste it on the SESSION string during deploy as it will be used for authentication.\n\nGoodluck 🎉. ```" }, { quoted: session });
                     
                     await delay(100);
                     await client.ws.close();
