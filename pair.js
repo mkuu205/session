@@ -16,6 +16,7 @@ const {
 
 const router = express.Router()
 
+/* Generate random ID for temp session folder */
 function makeid(length = 6) {
  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
  let result = ""
@@ -25,8 +26,11 @@ function makeid(length = 6) {
  return result
 }
 
+/* Remove temp session folder */
 function removeFile(dir) {
- if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
+ if (fs.existsSync(dir)) {
+  fs.rmSync(dir, { recursive: true, force: true })
+ }
 }
 
 router.get("/", async (req, res) => {
@@ -52,9 +56,10 @@ router.get("/", async (req, res) => {
 
   const client = makeWASocket({
    version,
-   logger: pino({ level: "silent" }),
    printQRInTerminal: false,
+   logger: pino({ level: "silent" }),
    browser: Browsers.windows("Chrome"),
+
    auth: {
     creds: state.creds,
     keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }))
@@ -63,27 +68,32 @@ router.get("/", async (req, res) => {
 
   client.ev.on("creds.update", saveCreds)
 
-  if (!client.authState.creds.registered) {
+  /* Generate pairing code */
+  if (!state.creds.registered) {
 
-   await delay(1500)
+   await delay(2000)
 
    const code = await client.requestPairingCode(num)
 
-   res.json({ code })
+   if (!res.headersSent) {
+    res.json({ code })
+   }
+
   }
 
   client.ev.on("connection.update", async (update) => {
 
-   const { connection } = update
+   const { connection, lastDisconnect } = update
 
    if (connection === "open") {
 
-    console.log("✅ Connected")
+    console.log("✅ WhatsApp Connected")
 
     const credsPath = path.join(sessionPath, "creds.json")
 
     let sessionData = null
 
+    /* Wait until creds.json is written */
     while (!sessionData) {
 
      if (fs.existsSync(credsPath)) {
@@ -94,21 +104,24 @@ router.get("/", async (req, res) => {
        sessionData = data
        break
       }
+
      }
 
      await delay(1000)
     }
 
+    /* Compress session */
     const compressed = zlib.gzipSync(sessionData)
 
     const session = "kish~" + compressed.toString("base64")
 
+    /* Send session to WhatsApp */
     await client.sendMessage(client.user.id, {
      text: session
     })
 
     await client.sendMessage(client.user.id, {
-     text: "*KISH-MD Successfully Linked ✅*\n\nDo not share this session with anyone."
+     text: "*KISH-MD linked successfully ✅*\n\nKeep this session safe."
     })
 
     await delay(2000)
@@ -116,13 +129,24 @@ router.get("/", async (req, res) => {
     await client.ws.close()
 
     removeFile(sessionPath)
+
+   }
+
+   if (connection === "close") {
+
+    const code = lastDisconnect?.error?.output?.statusCode
+
+    console.log("Connection closed:", code)
+
+    removeFile(sessionPath)
+
    }
 
   })
 
  } catch (err) {
 
-  console.log("Pair error:", err)
+  console.log("Pairing error:", err)
 
   removeFile(sessionPath)
 
