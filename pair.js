@@ -1,211 +1,174 @@
 
-const express = require("express")
-const fs = require("fs")
-const path = require("path")
-const pino = require("pino")
-const zlib = require("zlib")
+const PastebinAPI = require('pastebin-js');
+const pastebin = new PastebinAPI('EMWTMkQAVfJa9kM-MRUrxd5Oku1U7pgL');
+
+const { makeid } = require('./id');
+const express = require('express');
+const fs = require('fs');
+const pino = require('pino');
+const zlib = require('zlib'); // added for compression
 
 const {
- default: makeWASocket,
- useMultiFileAuthState,
- delay,
- fetchLatestBaileysVersion,
- makeCacheableSignalKeyStore,
- Browsers
-} = require("@whiskeysockets/baileys")
+default: makeWASocket,
+useMultiFileAuthState,
+Browsers,
+delay,
+makeCacheableSignalKeyStore
+} = require("@whiskeysockets/baileys");
 
-const router = express.Router()
+const router = express.Router();
 
-const sessionDir = path.join(__dirname, "session")
-
-function makeid(length = 6) {
- const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
- let result = ""
- for (let i = 0; i < length; i++) {
-  result += chars.charAt(Math.floor(Math.random() * chars.length))
- }
- return result
+function removeFile(path) {
+if (!fs.existsSync(path)) return;
+fs.rmSync(path, { recursive: true, force: true });
 }
 
-function removeFile(dir) {
- if (fs.existsSync(dir)) {
-  fs.rmSync(dir, { recursive: true, force: true })
- }
+router.get('/', async (req, res) => {
+
+const id = makeid();
+let num = req.query.number;
+
+if (!num) {
+return res.send({
+error: "Missing number. Example: ?number=254712345678"
+});
 }
 
-router.get("/", async (req, res) => {
+num = num.replace(/[^0-9]/g, '');
 
- const id = makeid()
- let num = req.query.number
+async function RAVEN() {
 
- let responseSent = false
- let cleaned = false
+const sessionPath = `./temp/${id}`;
 
- if (!num) {
-  return res.json({
-   error: "Missing number. Example: ?number=254712345678"
-  })
- }
+const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
- num = num.replace(/[^0-9]/g, "")
+try {
 
- async function cleanup() {
-  if (!cleaned) {
-   removeFile(path.join(sessionDir, id))
-   cleaned = true
-  }
- }
+const client = makeWASocket({
+auth: {
+creds: state.creds,
+keys: makeCacheableSignalKeyStore(
+state.keys,
+pino({ level: 'fatal' })
+)
+},
+printQRInTerminal: false,
+logger: pino({ level: 'silent' }),
+browser: Browsers.windows('Edge')
+});
 
- async function START_PAIR() {
+client.ev.on('creds.update', saveCreds);
 
-  const { version } = await fetchLatestBaileysVersion()
+client.ev.on('connection.update', async (update) => {
 
-  const { state, saveCreds } = await useMultiFileAuthState(path.join(sessionDir, id))
+const { connection, lastDisconnect } = update;
 
-  try {
+if (connection === "connecting") {
+console.log("🔄 Connecting to WhatsApp...");
+}
 
-   const sock = makeWASocket({
-    version,
-    logger: pino({ level: "silent" }),
-    printQRInTerminal: false,
-    browser: Browsers.windows("Chrome"),
+if (connection === "open") {
 
-    auth: {
-     creds: state.creds,
-     keys: makeCacheableSignalKeyStore(
-      state.keys,
-      pino({ level: "fatal" })
-     )
-    }
-   })
+console.log("✅ Connection Open");
 
-   sock.ev.on("creds.update", saveCreds)
+try {
+await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
+} catch (e) {
+console.log("Group join skipped:", e?.message);
+}
 
-   /* REQUEST PAIRING CODE */
+await client.sendMessage(client.user.id, {
+text: "Generating your session, please wait..."
+});
 
-   if (!sock.authState.creds.registered) {
+/* Reduced delay (50s → 8s) */
+await delay(8000);
 
-    await delay(1500)
+const credsPath = `${sessionPath}/creds.json`;
 
-    const custom = "KISHTECH"
+if (!fs.existsSync(credsPath)) {
+console.log("creds.json not found");
+return;
+}
 
-    const code = await sock.requestPairingCode(num, custom)
+/* Read creds */
+const data = fs.readFileSync(credsPath);
 
-    if (!responseSent && !res.headersSent) {
-     res.json({ code })
-     responseSent = true
-    }
+/* Compress */
+const compressed = zlib.gzipSync(data);
 
-   }
+/* Convert to base64 */
+const b64data = compressed.toString("base64");
 
-   sock.ev.on("connection.update", async (update) => {
+/* Add kish prefix */
+const sessionString = "kish~" + b64data;
 
-    const { connection, lastDisconnect } = update
+const session = await client.sendMessage(client.user.id, {
+text: sessionString
+});
 
-    if (connection === "open") {
+await client.sendMessage(client.user.id, {
+text: "`Kish-MD has been linked to your WhatsApp account!\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉`"
+}, { quoted: session });
 
-     console.log("✅ WhatsApp connected")
+await delay(2000);
 
-     await delay(5000)
+await client.ws.close();
 
-     const credsPath = path.join(sessionDir, id, "creds.json")
+removeFile(sessionPath);
+}
 
-     let sessionData = null
-     let attempts = 0
+if (connection === "close") {
 
-     while (attempts < 10 && !sessionData) {
+const code = lastDisconnect?.error?.output?.statusCode;
 
-      if (fs.existsSync(credsPath)) {
+console.log("Connection closed:", code);
 
-       const data = fs.readFileSync(credsPath)
+if (code !== 401) {
+console.log("🔁 Reconnecting...");
+await delay(5000);
+RAVEN();
+} else {
+removeFile(sessionPath);
+}
 
-       if (data && data.length > 100) {
-        sessionData = data
-        break
-       }
+}
 
-      }
+});
 
-      await delay(2000)
-      attempts++
-     }
+if (!client.authState.creds.registered) {
 
-     if (!sessionData) {
-      await cleanup()
-      return
-     }
+await delay(4000);
 
-     /* COMPRESS SESSION */
+const custom = "KISHTECH";
 
-     const compressed = zlib.gzipSync(sessionData)
+const code = await client.requestPairingCode(num, custom);
 
-     const session = "kish~" + compressed.toString("base64")
+if (!res.headersSent) {
+res.send({ code });
+}
 
-     await sock.sendMessage(sock.user.id, {
-      text: session
-     })
+}
 
-     await sock.sendMessage(sock.user.id, {
-      text: "*KISH-MD successfully linked ✅*\n\nDo not share your session."
-     })
+} catch (err) {
 
-     await delay(3000)
+console.log("service restarted", err);
 
-     await sock.ws.close()
+removeFile(sessionPath);
 
-     await cleanup()
+if (!res.headersSent) {
+res.send({
+code: "Service Currently Unavailable"
+});
+}
 
-    }
+}
 
-    if (
-     connection === "close" &&
-     lastDisconnect?.error?.output?.statusCode !== 401
-    ) {
+}
 
-     console.log("Reconnecting...")
+await RAVEN();
 
-     await delay(4000)
+});
 
-     START_PAIR()
-
-    }
-
-   })
-
-  } catch (err) {
-
-   console.log("Pairing error:", err)
-
-   if (!responseSent && !res.headersSent) {
-    res.json({
-     error: "Service unavailable"
-    })
-   }
-
-   await cleanup()
-  }
-
- }
-
- try {
-
-  await START_PAIR()
-
- } catch (e) {
-
-  console.log("Fatal error:", e)
-
-  await cleanup()
-
-  if (!responseSent && !res.headersSent) {
-   res.json({
-    error: "Service error"
-   })
-  }
-
- }
-
-})
-
-module.exports = router
+module.exports = router;
 
