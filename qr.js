@@ -1,3 +1,4 @@
+
 const { makeid } = require('./id')
 const QRCode = require('qrcode')
 const express = require('express')
@@ -6,192 +7,189 @@ const pino = require('pino')
 const zlib = require('zlib')
 
 const {
-default: makeWASocket,
-useMultiFileAuthState,
-Browsers,
-delay
-} = require('@whiskeysockets/baileys')
+ default: RavenConnect,
+ useMultiFileAuthState,
+ Browsers,
+ delay,
+ makeCacheableSignalKeyStore
+} = require("@whiskeysockets/baileys")
 
 const router = express.Router()
 
-function removeFile(path){
-if(!fs.existsSync(path)) return
-fs.rmSync(path,{recursive:true,force:true})
+function removeFile(FilePath) {
+ if (!fs.existsSync(FilePath)) return
+ fs.rmSync(FilePath, { recursive: true, force: true })
 }
 
-router.get('/',async(req,res)=>{
+router.get('/', async (req, res) => {
 
-const id = makeid()
+ const id = makeid()
 
-async function KISH(){
+ async function RAVEN() {
 
-const { state, saveCreds } = await useMultiFileAuthState('./temp/'+id)
+  const sessionPath = `./temp/${id}`
 
-try{
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
-const client = makeWASocket({
+  try {
 
-auth:state,
-printQRInTerminal:false,
-logger:pino({level:'silent'}),
-browser:Browsers.macOS('Desktop'),
+   const client = RavenConnect({
+    auth: {
+     creds: state.creds,
+     keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }))
+    },
+    printQRInTerminal: false,
+    logger: pino({ level: "silent" }),
+    browser: Browsers.macOS("Desktop")
+   })
 
-connectTimeoutMs:60000,
-keepAliveIntervalMs:10000
+   client.ev.on('creds.update', saveCreds)
 
-})
+   client.ev.on("connection.update", async (update) => {
 
-client.ev.on('creds.update',saveCreds)
+    const { connection, lastDisconnect, qr } = update
 
-client.ev.on('connection.update',async(update)=>{
+    /* SHOW QR PAGE */
+    if (qr) {
 
-const { connection,lastDisconnect,qr } = update
+     const qrImage = await QRCode.toDataURL(qr)
 
-if(qr && !res.headersSent){
-
-const qrImage = await QRCode.toDataURL(qr)
-
-return res.send(`
+     return res.send(`
 <!DOCTYPE html>
 <html>
 <head>
-<title>KISH-MD | QR</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
+<title>KISH-MD | QR CODE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 body{
 display:flex;
 justify-content:center;
 align-items:center;
-height:100vh;
+min-height:100vh;
+margin:0;
 background:#000;
-color:white;
 font-family:Arial;
+color:#fff;
 text-align:center
 }
-
-.qr{
+.container{max-width:600px;width:100%}
+.qr-container{margin:20px auto;width:300px;height:300px}
+.qr-code{
+width:300px;height:300px;
+padding:10px;
 background:white;
-padding:15px;
 border-radius:20px
 }
-
-img{
-width:250px
-}
-
-button{
-margin-top:20px;
-padding:10px 20px;
-border:none;
-border-radius:20px;
-background:#8a2be2;
-color:white
+.qr-code img{width:100%;height:100%}
+.back-btn{
+display:inline-block;
+padding:12px 25px;
+background:#9d50bb;
+color:white;
+text-decoration:none;
+border-radius:30px;
+margin-top:20px
 }
 </style>
 </head>
 
 <body>
 
-<div>
-<h2>KISH-MD QR LOGIN</h2>
+<div class="container">
 
-<div class="qr">
+<h1>KISH QR CODE</h1>
+
+<div class="qr-container">
+<div class="qr-code">
 <img src="${qrImage}">
 </div>
+</div>
 
-<p>Scan with WhatsApp</p>
+<p>Scan this QR with WhatsApp</p>
 
-<button onclick="location.href='/'">Back</button>
+<a href="./" class="back-btn">Back</a>
 
 </div>
 
 </body>
 </html>
 `)
-}
+    }
 
-if(connection==='open'){
+    if (connection === "open") {
 
-console.log('✅ QR connected')
+     await client.sendMessage(client.user.id, {
+      text: "Generating your session..."
+     })
 
-await client.sendMessage(client.user.id,{
-text:'Generating your session...'
-})
+     const credsPath = `${sessionPath}/creds.json`
 
-await delay(50000)
+     let sessionData = null
 
-const credsPath = `./temp/${id}/creds.json`
+     while (!sessionData) {
 
-if(!fs.existsSync(credsPath)) return
+      if (fs.existsSync(credsPath)) {
 
-const data = fs.readFileSync(credsPath)
+       const data = fs.readFileSync(credsPath)
 
-const compressed = zlib.gzipSync(data)
-const base64 = compressed.toString('base64')
+       if (data && data.length > 100) {
+        sessionData = data
+        break
+       }
 
-const session = `Kish~${base64}`
+      }
 
-const msg = await client.sendMessage(client.user.id,{
-text:session
-})
+      await delay(1000)
+     }
 
-await client.sendMessage(
-client.user.id,
-{
-text:`Kish-MD has been linked to your WhatsApp account.
+     /* compress session */
+     const compressed = zlib.gzipSync(sessionData)
 
-Do NOT share this SESSION_ID.
+     const b64data = compressed.toString("base64")
 
-Paste it inside SESSION when deploying the bot.`
-},
-{quoted:msg}
-)
+     const sessionString = "kish~" + b64data
 
-await delay(2000)
+     const session = await client.sendMessage(client.user.id, {
+      text: sessionString
+     })
 
-await client.ws.close()
+     await client.sendMessage(client.user.id,{
+      text: "Kish-MD linked successfully. Do not share your session."
+     },{ quoted: session })
 
-removeFile(`./temp/${id}`)
+     await delay(2000)
 
-}
+     await client.ws.close()
 
-if(connection==='close'){
+     removeFile(sessionPath)
 
-const code = lastDisconnect?.error?.output?.statusCode
+    }
 
-console.log('Connection closed:',code)
+    if (connection === "close" && lastDisconnect?.error?.output?.statusCode !== 401) {
 
-if(code!==401){
+     await delay(5000)
 
-await delay(10000)
-KISH()
+     RAVEN()
 
-}else{
+    }
 
-removeFile(`./temp/${id}`)
+   })
 
-}
+  } catch (err) {
 
-}
+   console.log(err)
 
-})
+   if (!res.headersSent) {
+    res.json({ error: "Service unavailable" })
+   }
 
-}catch(err){
+   removeFile(sessionPath)
 
-console.log(err)
+  }
 
-if(!res.headersSent){
-res.send('Service Unavailable')
-}
+ }
 
-removeFile(`./temp/${id}`)
-
-}
-
-}
-
-KISH()
+ await RAVEN()
 
 })
 
