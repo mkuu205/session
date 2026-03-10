@@ -1,29 +1,22 @@
 {
-  "name": "raven-session-generator",
+  "name": "kish-session-generator",
   "version": "1.0.0",
-  "description": "Raven session generator",
-  "main": "./index.js",
+  "description": "Kish-MD Session Generator",
+  "main": "index.js",
   "engines": {
-    "npm": ">=9.7.2",
-    "node": "20.x"
+    "node": ">=20.x",
+    "npm": ">=9.7.2"
   },
   "scripts": {
     "start": "node index.js"
   },
-  "author": "Nick",
+  "author": "Kish Tech",
   "license": "GPL-3.0",
   "dependencies": {
-    "@whiskeysockets/baileys": "npm:wileys",
-    "maher-zubair-baileys": "^6.6.5",
-    "baileys-elite": "^0.0.4",
-    "qrcode": "^1.5.3",
-    "awesome-phonenumber": "^2.64.0",
-    "pino": "^8.1.0",
-    "phone": "3.1.30",
-    "jimp": "1.6.0",
-    "body-parser": "^1.20.1",
+    "@whiskeysockets/baileys": "^6.7.8",
+    "express": "^4.18.2",
     "pastebin-js": "^1.0.6",
-    "express": "^4.18.1",
-    "path": "^0.12.7"
+    "pino": "^8.17.0",
+    "qrcode": "^1.5.4"
   }
 }
