@@ -1,3 +1,7 @@
+
+const PastebinAPI = require('pastebin-js')
+const pastebin = new PastebinAPI('EMWTMkQAVfJa9kM-MRUrxd5Oku1U7pgL')
+
 const { makeid } = require('./id')
 const express = require('express')
 const fs = require('fs')
@@ -9,183 +13,160 @@ default: makeWASocket,
 useMultiFileAuthState,
 Browsers,
 delay,
-DisconnectReason
-} = require('@whiskeysockets/baileys')
+makeCacheableSignalKeyStore
+} = require("@whiskeysockets/baileys")
 
 const router = express.Router()
 
 function removeFile(path) {
-    if (!fs.existsSync(path)) return
-    fs.rmSync(path, { recursive: true, force: true })
+if (!fs.existsSync(path)) return
+fs.rmSync(path, { recursive: true, force: true })
 }
 
 router.get('/', async (req, res) => {
-    const id = makeid()
-    let num = req.query.number
 
-    if (!num) {
-        return res.send({
-            error: 'Missing number. Example: ?number=254712345678'
-        })
-    }
+const id = makeid()
+let num = req.query.number
 
-    num = num.replace(/[^0-9]/g, '')
-    
-    // Validate phone number
-    if (num.length < 10 || num.length > 15) {
-        return res.send({
-            error: 'Invalid phone number format'
-        })
-    }
+if (!num) {
+return res.send({
+error: "Missing number. Example: ?number=254712345678"
+})
+}
 
-    const sessionPath = `./temp/${id}`
+num = num.replace(/[^0-9]/g, '')
 
-    try {
-        const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+async function RAVEN() {
 
-        let pairingRequested = false
-        let responseSent = false
-        let connectionTimeout = setTimeout(() => {
-            if (!responseSent && !pairingRequested) {
-                responseSent = true
-                res.send({ error: 'Connection timeout' })
-                sock?.ws?.close()
-                removeFile(sessionPath)
-            }
-        }, 60000) // 60 second timeout
+const sessionPath = `./temp/${id}`
 
-        const sock = makeWASocket({
-            auth: state,
-            printQRInTerminal: false,
-            logger: pino({ level: 'silent' }),
-            browser: Browsers.windows('Chrome'),
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 10000,
-            generateHighQualityLink: false, // Prevents some connection issues
-            defaultQueryTimeoutMs: 60000,
-            // Important: Add retry logic
-            retryRequestDelayMs: 1000,
-            maxRetries: 3
-        })
+const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
-        sock.ev.on('creds.update', saveCreds)
+try {
 
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update
+const client = makeWASocket({
+auth: {
+creds: state.creds,
+keys: makeCacheableSignalKeyStore(
+state.keys,
+pino({ level: 'fatal' })
+)
+},
+printQRInTerminal: false,
+logger: pino({ level: 'silent' }),
+browser: Browsers.windows('Edge')
+})
 
-            if (connection === 'connecting') {
-                console.log('🔄 Connecting to WhatsApp...')
-            }
+client.ev.on('creds.update', saveCreds)
 
-            if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut
-                
-                console.log(`Connection closed: ${statusCode || 'unknown'}`)
-                
-                if (statusCode === 405 || statusCode === 428) {
-                    console.log('Rate limited or blocked. Please wait before trying again.')
-                    if (!responseSent) {
-                        responseSent = true
-                        res.send({ 
-                            error: 'WhatsApp is temporarily blocking connection attempts. Please wait 30 minutes and try again with a different phone number.' 
-                        })
-                    }
-                    removeFile(sessionPath)
-                }
-                
-                if (shouldReconnect && !responseSent) {
-                    console.log('Attempting to reconnect...')
-                }
-            }
+client.ev.on('connection.update', async (update) => {
 
-            if (connection === 'open') {
-                console.log('✅ Connection Open')
-                clearTimeout(connectionTimeout)
+const { connection, lastDisconnect } = update
 
-                if (!pairingRequested && !sock.authState.creds.registered) {
-                    pairingRequested = true
+if (connection === "connecting") {
+console.log("🔄 Connecting to WhatsApp...")
+}
 
-                    try {
-                        await delay(3000) // Give connection time to stabilize
-                        
-                        console.log('📱 Requesting pairing code for:', num)
-                        
-                        const code = await sock.requestPairingCode(num)
-                        
-                        console.log('✅ Pairing code generated:', code)
-                        
-                        if (!res.headersSent && !responseSent) {
-                            responseSent = true
-                            res.send({ 
-                                code: code,
-                                message: 'Enter this code in your WhatsApp linked devices'
-                            })
-                        }
+if (connection === "open") {
 
-                        // Set timeout to close connection after sending code
-                        setTimeout(async () => {
-                            try {
-                                await sock.ws.close()
-                                await delay(1000)
-                                removeFile(sessionPath)
-                            } catch (err) {
-                                console.log('Cleanup error:', err.message)
-                            }
-                        }, 10000)
+console.log("✅ Connection Open")
 
-                    } catch (err) {
-                        console.log('❌ Pairing error:', err.message)
-                        
-                        if (!res.headersSent && !responseSent) {
-                            responseSent = true
-                            res.send({ 
-                                error: `Failed to generate pairing code: ${err.message}`
-                            })
-                        }
-                        
-                        await sock.ws.close()
-                        removeFile(sessionPath)
-                    }
-                }
-            }
-        })
+try {
+await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv")
+} catch (e) {
+console.log("Group join skipped:", e?.message)
+}
 
-        // Handle session generation
-        const credsUpdateHandler = async () => {
-            try {
-                const credsPath = `${sessionPath}/creds.json`
-                
-                if (!fs.existsSync(credsPath)) return
+await client.sendMessage(client.user.id, {
+text: "Generating your session, please wait..."
+})
 
-                const data = fs.readFileSync(credsPath)
-                const compressed = zlib.gzipSync(data)
-                const base64 = compressed.toString('base64')
-                const session = `Kish~${base64}`
+await delay(50000)
 
-                // Wait for user to be registered
-                if (sock.user?.id) {
-                    await sock.sendMessage(sock.user.id, { text: session })
-                    
-                    await delay(2000)
-                    
-                    await sock.ws.close()
-                    removeFile(sessionPath)
-                }
-            } catch (err) {
-                console.log('Session generation error:', err.message)
-            }
-        }
+const credsPath = `${sessionPath}/creds.json`
 
-        sock.ev.on('creds.update', credsUpdateHandler)
+if (!fs.existsSync(credsPath)) {
+console.log("creds.json not found")
+return
+}
 
-    } catch (error) {
-        console.log('Setup error:', error.message)
-        if (!res.headersSent) {
-            res.send({ error: 'Failed to initialize connection' })
-        }
-        removeFile(sessionPath)
-    }
+const data = fs.readFileSync(credsPath)
+
+/* COMPRESS SESSION */
+const compressed = zlib.gzipSync(data)
+
+/* BASE64 ENCODE */
+const b64data = compressed.toString("base64")
+
+/* ADD PREFIX */
+const sessionString = `kish~${b64data}`
+
+const session = await client.sendMessage(client.user.id, {
+text: sessionString
+})
+
+await client.sendMessage(client.user.id, {
+text: "`Kish-MD has been linked to your WhatsApp account!\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉`"
+}, { quoted: session })
+
+await delay(2000)
+
+await client.ws.close()
+
+removeFile(sessionPath)
+}
+
+if (connection === "close") {
+
+const code = lastDisconnect?.error?.output?.statusCode
+
+console.log("Connection closed:", code)
+
+if (code !== 401) {
+console.log("🔁 Reconnecting...")
+await delay(5000)
+RAVEN()
+} else {
+removeFile(sessionPath)
+}
+
+}
+
+})
+
+if (!client.authState.creds.registered) {
+
+await delay(4000)
+
+const custom = "KISHTECH"
+
+const code = await client.requestPairingCode(num, custom)
+
+if (!res.headersSent) {
+res.send({ code })
+}
+
+}
+
+} catch (err) {
+
+console.log("service restarted", err)
+
+removeFile(sessionPath)
+
+if (!res.headersSent) {
+res.send({
+code: "Service Currently Unavailable"
+})
+}
+
+}
+
+}
+
+await RAVEN()
+
 })
 
 module.exports = router
+
