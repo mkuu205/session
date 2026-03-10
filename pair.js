@@ -1,172 +1,139 @@
 
-const PastebinAPI = require('pastebin-js')
-const pastebin = new PastebinAPI('EMWTMkQAVfJa9kM-MRUrxd5Oku1U7pgL')
-
-const { makeid } = require('./id')
-const express = require('express')
-const fs = require('fs')
-const pino = require('pino')
-const zlib = require('zlib')
+const express = require("express")
+const fs = require("fs")
+const path = require("path")
+const pino = require("pino")
+const zlib = require("zlib")
 
 const {
-default: makeWASocket,
-useMultiFileAuthState,
-Browsers,
-delay,
-makeCacheableSignalKeyStore
+ default: makeWASocket,
+ useMultiFileAuthState,
+ fetchLatestBaileysVersion,
+ makeCacheableSignalKeyStore,
+ Browsers,
+ delay
 } = require("@whiskeysockets/baileys")
 
 const router = express.Router()
 
-function removeFile(path) {
-if (!fs.existsSync(path)) return
-fs.rmSync(path, { recursive: true, force: true })
+function makeid(length = 6) {
+ const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+ let result = ""
+ for (let i = 0; i < length; i++) {
+  result += chars.charAt(Math.floor(Math.random() * chars.length))
+ }
+ return result
 }
 
-router.get('/', async (req, res) => {
-
-const id = makeid()
-let num = req.query.number
-
-if (!num) {
-return res.send({
-error: "Missing number. Example: ?number=254712345678"
-})
+function removeFile(dir) {
+ if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
 }
 
-num = num.replace(/[^0-9]/g, '')
+router.get("/", async (req, res) => {
 
-async function RAVEN() {
+ const id = makeid()
+ const sessionPath = path.join(__dirname, "temp", id)
 
-const sessionPath = `./temp/${id}`
+ let num = req.query.number
 
-const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+ if (!num) {
+  return res.json({
+   error: "Missing number. Example: ?number=254712345678"
+  })
+ }
 
-try {
+ num = num.replace(/[^0-9]/g, "")
 
-const client = makeWASocket({
-auth: {
-creds: state.creds,
-keys: makeCacheableSignalKeyStore(
-state.keys,
-pino({ level: 'fatal' })
-)
-},
-printQRInTerminal: false,
-logger: pino({ level: 'silent' }),
-browser: Browsers.windows('Edge')
-})
+ try {
 
-client.ev.on('creds.update', saveCreds)
+  const { version } = await fetchLatestBaileysVersion()
 
-client.ev.on('connection.update', async (update) => {
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
-const { connection, lastDisconnect } = update
+  const client = makeWASocket({
+   version,
+   logger: pino({ level: "silent" }),
+   printQRInTerminal: false,
+   browser: Browsers.windows("Chrome"),
+   auth: {
+    creds: state.creds,
+    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }))
+   }
+  })
 
-if (connection === "connecting") {
-console.log("🔄 Connecting to WhatsApp...")
-}
+  client.ev.on("creds.update", saveCreds)
 
-if (connection === "open") {
+  if (!client.authState.creds.registered) {
 
-console.log("✅ Connection Open")
+   await delay(1500)
 
-try {
-await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv")
-} catch (e) {
-console.log("Group join skipped:", e?.message)
-}
+   const code = await client.requestPairingCode(num)
 
-await client.sendMessage(client.user.id, {
-text: "Generating your session, please wait..."
-})
+   res.json({ code })
+  }
 
-await delay(50000)
+  client.ev.on("connection.update", async (update) => {
 
-const credsPath = `${sessionPath}/creds.json`
+   const { connection } = update
 
-if (!fs.existsSync(credsPath)) {
-console.log("creds.json not found")
-return
-}
+   if (connection === "open") {
 
-const data = fs.readFileSync(credsPath)
+    console.log("✅ Connected")
 
-/* COMPRESS SESSION */
-const compressed = zlib.gzipSync(data)
+    const credsPath = path.join(sessionPath, "creds.json")
 
-/* BASE64 ENCODE */
-const b64data = compressed.toString("base64")
+    let sessionData = null
 
-/* ADD PREFIX */
-const sessionString = `kish~${b64data}`
+    while (!sessionData) {
 
-const session = await client.sendMessage(client.user.id, {
-text: sessionString
-})
+     if (fs.existsSync(credsPath)) {
 
-await client.sendMessage(client.user.id, {
-text: "`Kish-MD has been linked to your WhatsApp account!\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉`"
-}, { quoted: session })
+      const data = fs.readFileSync(credsPath)
 
-await delay(2000)
+      if (data && data.length > 100) {
+       sessionData = data
+       break
+      }
+     }
 
-await client.ws.close()
+     await delay(1000)
+    }
 
-removeFile(sessionPath)
-}
+    const compressed = zlib.gzipSync(sessionData)
 
-if (connection === "close") {
+    const session = "kish~" + compressed.toString("base64")
 
-const code = lastDisconnect?.error?.output?.statusCode
+    await client.sendMessage(client.user.id, {
+     text: session
+    })
 
-console.log("Connection closed:", code)
+    await client.sendMessage(client.user.id, {
+     text: "*KISH-MD Successfully Linked ✅*\n\nDo not share this session with anyone."
+    })
 
-if (code !== 401) {
-console.log("🔁 Reconnecting...")
-await delay(5000)
-RAVEN()
-} else {
-removeFile(sessionPath)
-}
+    await delay(2000)
 
-}
+    await client.ws.close()
 
-})
+    removeFile(sessionPath)
+   }
 
-if (!client.authState.creds.registered) {
+  })
 
-await delay(4000)
+ } catch (err) {
 
-const custom = "KISHTECH"
+  console.log("Pair error:", err)
 
-const code = await client.requestPairingCode(num, custom)
+  removeFile(sessionPath)
 
-if (!res.headersSent) {
-res.send({ code })
-}
+  if (!res.headersSent) {
+   res.json({
+    error: "Service temporarily unavailable"
+   })
+  }
 
-}
-
-} catch (err) {
-
-console.log("service restarted", err)
-
-removeFile(sessionPath)
-
-if (!res.headersSent) {
-res.send({
-code: "Service Currently Unavailable"
-})
-}
-
-}
-
-}
-
-await RAVEN()
+ }
 
 })
 
 module.exports = router
-
