@@ -5,6 +5,7 @@ const { makeid } = require('./id');
 const express = require('express');
 const fs = require('fs');
 const pino = require('pino');
+const zlib = require('zlib');
 
 const {
 default: makeWASocket,
@@ -34,7 +35,7 @@ error: "Missing number. Example: ?number=254712345678"
 
 num = num.replace(/[^0-9]/g, '');
 
-async function RAVEN() {
+async function KISH() {
 
 const sessionPath = `./temp/${id}`;
 
@@ -79,7 +80,7 @@ await client.sendMessage(client.user.id, {
 text: "Generating your session, please wait..."
 });
 
-await delay(50000);
+await delay(5000);
 
 const credsPath = `${sessionPath}/creds.json`;
 
@@ -89,14 +90,28 @@ return;
 }
 
 const data = fs.readFileSync(credsPath);
-const b64data = Buffer.from(data).toString("base64");
+
+/*
+COMPRESS SESSION
+*/
+const compressed = zlib.gzipSync(data);
+
+/*
+CONVERT TO BASE64
+*/
+const base64Session = compressed.toString("base64");
+
+/*
+FINAL SESSION FORMAT
+*/
+const finalSession = `Kish~${base64Session}`;
 
 const session = await client.sendMessage(client.user.id, {
-text: b64data
+text: finalSession
 });
 
 await client.sendMessage(client.user.id, {
-text: "`Kish-MD has been linked to your WhatsApp account!\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉`"
+text: "`Kish-MD has been linked to your WhatsApp account!\n\nDo NOT share this SESSION_ID with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉`"
 }, { quoted: session });
 
 await delay(2000);
@@ -115,7 +130,7 @@ console.log("Connection closed:", code);
 if (code !== 401) {
 console.log("🔁 Reconnecting...");
 await delay(5000);
-RAVEN();
+KISH();
 } else {
 removeFile(sessionPath);
 }
@@ -154,7 +169,7 @@ code: "Service Currently Unavailable"
 
 }
 
-await RAVEN();
+await KISH();
 
 });
 
