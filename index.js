@@ -1,27 +1,30 @@
 const express = require('express');
 const path = require('path');
-const bodyParser = require('body-parser');
 
 const app = express();
-const port = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8000;
 
-// modules
+/* -------------------- IMPORT ROUTES -------------------- */
+
 const qrRoutes = require('./qr');
 const codeRoutes = require('./pair');
 
+/* -------------------- FIX EVENT LIMIT -------------------- */
+
 require('events').EventEmitter.defaultMaxListeners = 500;
 
-/* -------------------- MIDDLEWARE FIRST -------------------- */
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+/* -------------------- MIDDLEWARE -------------------- */
 
-/* -------------------- ROUTES -------------------- */
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// API routes
+/* -------------------- API ROUTES -------------------- */
+
 app.use('/qr', qrRoutes);
 app.use('/code', codeRoutes);
 
-// HTML pages
+/* -------------------- HTML ROUTES -------------------- */
+
 app.get('/pair', (req, res) => {
   res.sendFile(path.join(__dirname, 'pair.html'));
 });
@@ -34,15 +37,17 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'main.html'));
 });
 
-/* -------------------- ERROR HANDLER (IMPORTANT FOR RENDER) -------------------- */
+/* -------------------- ERROR HANDLER -------------------- */
+
 app.use((err, req, res, next) => {
   console.error("SERVER ERROR:", err.stack);
   res.status(500).send("Internal Server Error");
 });
 
 /* -------------------- START SERVER -------------------- */
-app.listen(port, () => {
-  console.log(`📡 Connected on http://localhost:${port}`);
+
+app.listen(PORT, () => {
+  console.log(`📡 Session Generator running on http://localhost:${PORT}`);
 });
 
 module.exports = app;
