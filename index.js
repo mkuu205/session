@@ -1,72 +1,80 @@
+const express = require('express')
+const path = require('path')
+const fs = require('fs')
+const { MongoClient } = require('mongodb')
 
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
+const app = express()
+const PORT = process.env.PORT || 8000
 
-const app = express();
-const PORT = process.env.PORT || 8000;
+require('events').EventEmitter.defaultMaxListeners = 500
 
-require('events').EventEmitter.defaultMaxListeners = 500;
+/* mongodb */
 
-const qrRoutes = require('./qr');
-const codeRoutes = require('./pair');
+const client = new MongoClient(process.env.MONGO_URI)
+let db
 
-/* folders */
+async function connectDB() {
+  if (!db) {
+    await client.connect()
+    db = client.db("whatsapp_sessions")
+    console.log("✅ MongoDB connected")
+  }
+  return db
+}
 
-const sessionsDir = path.join(__dirname, "sessions");
-const tempDir = path.join(__dirname, "temp");
+connectDB()
 
-if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir);
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+/* routes */
 
-/* middleware */
+const qrRoutes = require('./qr')
+const codeRoutes = require('./pair')
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 
-/* API */
+app.use('/qr', qrRoutes)
+app.use('/code', codeRoutes)
 
-app.use('/qr', qrRoutes);
-app.use('/code', codeRoutes);
+/* SESSION FETCH */
 
-/* SESSION DOWNLOAD */
+app.get('/session/:id', async (req, res) => {
 
-app.get('/session/:id', (req, res) => {
+  const db = await connectDB()
 
-  const file = path.join(__dirname, "sessions", req.params.id + ".json");
+  const session = await db.collection("sessions")
+  .findOne({ id: req.params.id })
 
-  if (!fs.existsSync(file)) {
-    return res.status(404).json({ error: "Session not found" });
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" })
   }
 
-  const data = fs.readFileSync(file);
+  res.json(session.session)
 
-  res.json(JSON.parse(data));
-});
+})
 
 /* HTML */
 
 app.get('/pair', (req, res) => {
-  res.sendFile(path.join(__dirname, 'pair.html'));
-});
+  res.sendFile(path.join(__dirname, 'pair.html'))
+})
 
 app.get('/fork-check', (req, res) => {
-  res.sendFile(path.join(__dirname, 'fork-check.html'));
-});
+  res.sendFile(path.join(__dirname, 'fork-check.html'))
+})
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'main.html'));
-});
+  res.sendFile(path.join(__dirname, 'main.html'))
+})
 
 /* errors */
 
 app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err.stack);
-  res.status(500).send("Internal Server Error");
-});
+  console.error("SERVER ERROR:", err.stack)
+  res.status(500).send("Internal Server Error")
+})
 
 app.listen(PORT, () => {
-  console.log(`📡 Session Generator running on http://localhost:${PORT}`);
-});
+  console.log(`📡 Session Generator running on port ${PORT}`)
+})
 
-module.exports = app;
+module.exports = { app, connectDB }
