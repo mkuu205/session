@@ -1,11 +1,11 @@
-const { makeid } = require('./id')
-const express = require('express')
-const fs = require('fs')
-const path = require('path')
-const pino = require('pino')
-const crypto = require('crypto')
+const { makeid } = require('./id');
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const pino = require('pino');
+const crypto = require('crypto');
 
-const connectDB = require('./db')
+const connectDB = require('./db');
 
 const {
   default: makeWASocket,
@@ -13,117 +13,191 @@ const {
   Browsers,
   delay,
   makeCacheableSignalKeyStore
-} = require("@whiskeysockets/baileys")
+} = require("@whiskeysockets/baileys");
 
-const router = express.Router()
+const router = express.Router();
 
-const tempDir = path.join(__dirname, "temp")
+/* temp folder */
 
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
+const tempDir = path.join(__dirname, "temp");
+
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+
+/* delete folder safely */
 
 function removeFile(p) {
-  if (!fs.existsSync(p)) return
-  fs.rmSync(p, { recursive: true, force: true })
+  if (!fs.existsSync(p)) return;
+  fs.rmSync(p, { recursive: true, force: true });
 }
 
 router.get('/', async (req, res) => {
 
-  const id = makeid()
-  let num = req.query.number
+  const id = makeid();
+  let num = req.query.number;
 
   if (!num) {
     return res.send({
       error: "Missing number. Example: ?number=254712345678"
-    })
+    });
   }
 
-  num = num.replace(/[^0-9]/g, '')
+  num = num.replace(/[^0-9]/g, '');
 
-  const sessionPath = path.join(tempDir, id)
+  async function RAVEN() {
 
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+    const sessionPath = path.join(tempDir, id);
 
-  try {
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
-    const client = makeWASocket({
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(
-          state.keys,
-          pino({ level: 'fatal' })
-        )
-      },
-      printQRInTerminal: false,
-      logger: pino({ level: 'silent' }),
-      browser: Browsers.windows('Edge')
-    })
+    try {
 
-    client.ev.on('creds.update', saveCreds)
+      const client = makeWASocket({
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(
+            state.keys,
+            pino({ level: 'fatal' })
+          )
+        },
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        browser: Browsers.windows('Edge')
+      });
 
-    client.ev.on('connection.update', async (update) => {
+      client.ev.on('creds.update', saveCreds);
 
-      const { connection } = update
+      client.ev.on('connection.update', async (update) => {
 
-      if (connection === "open") {
+        const { connection, lastDisconnect } = update;
 
-        const db = await connectDB()
+        if (connection === "connecting") {
+          console.log("🔄 Connecting to WhatsApp...");
+        }
 
-        const credsPath = path.join(sessionPath, "creds.json")
+        if (connection === "open") {
 
-        let sessionData = JSON.parse(fs.readFileSync(credsPath))
+          console.log("✅ Connection Open");
 
-        const sessionId = crypto.randomBytes(16).toString("hex")
+          const db = await connectDB();
 
-        await db.collection("sessions").insertOne({
-          id: sessionId,
-          session: sessionData
-        })
+          await client.sendMessage(client.user.id, {
+            text: "Generating your session, please wait..."
+          });
 
-        const shortSession = "kish_" + sessionId
+          const credsPath = path.join(sessionPath, "creds.json");
 
-        const msg = await client.sendMessage(client.user.id, {
-          text: shortSession
-        })
+          let sessionData = null;
 
-        await client.sendMessage(client.user.id, {
-          text:
-            "`Session generated successfully!`\n\n" +
-            "Do NOT share this session ID.\n\n" +
-            "Example:\nSESSION=" + shortSession
-        }, { quoted: msg })
+          while (!sessionData) {
 
-        await delay(2000)
+            if (fs.existsSync(credsPath)) {
 
-        await client.ws.close()
+              const raw = fs.readFileSync(credsPath);
 
-        removeFile(sessionPath)
+              if (raw && raw.length > 100) {
+                sessionData = JSON.parse(raw);
+                break;
+              }
+
+            }
+
+            await delay(1000);
+
+          }
+
+          /* generate session id */
+
+          const sessionId = crypto.randomBytes(16).toString("hex");
+
+          /* store session in MongoDB */
+
+          await db.collection("sessions").insertOne({
+            id: sessionId,
+            session: sessionData
+          });
+
+          const shortSession = "kish_" + sessionId;
+
+          const session = await client.sendMessage(client.user.id, {
+            text: shortSession
+          });
+
+          await client.sendMessage(client.user.id, {
+            text:
+              "`Kish-MD has been linked to your WhatsApp account!\n\n" +
+              "Do NOT share this session ID with anyone.\n\n" +
+              "Paste it in SESSION during deploy.\n\n" +
+              "Example:\nSESSION=" + shortSession + "`"
+          }, { quoted: session });
+
+          await delay(2000);
+
+          await client.ws.close();
+
+          await delay(3000);
+
+          removeFile(sessionPath);
+
+        }
+
+        if (connection === "close") {
+
+          const code = lastDisconnect?.error?.output?.statusCode;
+
+          console.log("Connection closed:", code);
+
+          if (code !== 401) {
+
+            console.log("🔁 Reconnecting...");
+
+            await delay(5000);
+
+            RAVEN();
+
+          } else {
+
+            await delay(3000);
+
+            removeFile(sessionPath);
+
+          }
+
+        }
+
+      });
+
+      if (!client.authState.creds.registered) {
+
+        await delay(3000);
+
+        const code = await client.requestPairingCode(num, "KISHTECH");
+
+        if (!res.headersSent) {
+          res.send({ code });
+        }
 
       }
 
-    })
+    } catch (err) {
 
-    if (!client.authState.creds.registered) {
+      console.log("service restarted", err);
 
-      await delay(3000)
+      await delay(3000);
 
-      const code = await client.requestPairingCode(num)
+      removeFile(sessionPath);
 
-      res.send({ code })
+      if (!res.headersSent) {
+        res.send({
+          code: "Service Currently Unavailable"
+        });
+      }
 
     }
 
-  } catch (err) {
-
-    console.log(err)
-
-    removeFile(sessionPath)
-
-    res.send({
-      error: "Service unavailable"
-    })
-
   }
 
-})
+  await RAVEN();
 
-module.exports = router
+});
+
+module.exports = router;
