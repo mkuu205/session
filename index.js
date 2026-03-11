@@ -11,6 +11,12 @@ const PORT = process.env.PORT || 8000;
 const qrRoutes = require('./qr');
 const codeRoutes = require('./pair');
 
+
+/*----'----------------------*/
+const data = fs.readFileSync(file)
+fs.unlinkSync(file) // delete after download
+res.json(JSON.parse(data))
+
 /* -------------------- FIX EVENT LIMIT -------------------- */
 
 require('events').EventEmitter.defaultMaxListeners = 500;
