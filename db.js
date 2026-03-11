@@ -1,6 +1,12 @@
 const { MongoClient } = require("mongodb")
 
 const uri = process.env.MONGO_URI
+
+if (!uri) {
+  console.error("❌ MONGO_URI not set")
+  process.exit(1)
+}
+
 const client = new MongoClient(uri)
 
 let db
