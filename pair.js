@@ -1,4 +1,3 @@
-
 const { makeid } = require('./id')
 const express = require('express')
 const fs = require('fs')
@@ -33,7 +32,7 @@ router.get('/', async (req, res) => {
  let num = req.query.number
 
  if (!num) {
-  return res.json({
+  return res.send({
    error: "Missing number. Example: ?number=254712345678"
   })
  }
@@ -41,6 +40,8 @@ router.get('/', async (req, res) => {
  num = num.replace(/[^0-9]/g, '')
 
  const sessionPath = path.join(tempDir, id)
+
+ /* ensure temp folder exists */
 
  if (!fs.existsSync(sessionPath)) {
   fs.mkdirSync(sessionPath, { recursive: true })
@@ -64,7 +65,7 @@ router.get('/', async (req, res) => {
 
   client.ev.on("connection.update", async (update) => {
 
-   const { connection, lastDisconnect } = update
+   const { connection } = update
 
    if (connection === "connecting") {
     console.log("🔄 Connecting to WhatsApp...")
@@ -82,6 +83,8 @@ router.get('/', async (req, res) => {
 
     let sessionData = null
 
+    /* wait until creds.json exists */
+
     while (!sessionData) {
 
      if (fs.existsSync(credsPath)) {
@@ -98,6 +101,8 @@ router.get('/', async (req, res) => {
      await delay(1000)
     }
 
+    /* generate short session id */
+
     const sessionId = crypto.randomBytes(16).toString("hex")
 
     fs.writeFileSync(
@@ -107,60 +112,54 @@ router.get('/', async (req, res) => {
 
     const shortSession = "kish_" + sessionId
 
-    const msg = await client.sendMessage(client.user.id, {
+    const sessionMsg = await client.sendMessage(client.user.id, {
      text: shortSession
     })
 
-    await client.sendMessage(client.user.id,{
+    await client.sendMessage(client.user.id, {
      text:
-      "Kish-MD linked successfully.\n\n" +
-      "Do NOT share this session ID.\n\n" +
+      "Kish-MD has been linked to your WhatsApp account!\n\n" +
+      "Do NOT share this session ID with anyone.\n\n" +
       "Example:\nSESSION=" + shortSession
-    },{ quoted: msg })
+    }, { quoted: sessionMsg })
 
     await delay(2000)
 
     await client.ws.close()
 
-    await delay(2000)
+    /* wait before deleting temp */
+
+    await delay(5000)
 
     removeFile(sessionPath)
    }
 
    if (connection === "close") {
-
-    const code = lastDisconnect?.error?.output?.statusCode
-
-    console.log("Connection closed:", code)
-
-    if (code === 401) {
-     removeFile(sessionPath)
-    }
-
+    console.log("Connection closed")
    }
 
   })
 
   if (!client.authState.creds.registered) {
 
-   await delay(2000)
+   await delay(3000)
 
    const code = await client.requestPairingCode(num, "KISHTECH")
 
    if (!res.headersSent) {
-    res.json({ code })
+    res.send({ code })
    }
 
   }
 
  } catch (err) {
 
-  console.log("service error:", err)
+  console.log("Service error:", err)
 
   removeFile(sessionPath)
 
   if (!res.headersSent) {
-   res.json({
+   res.send({
     code: "Service Currently Unavailable"
    })
   }
