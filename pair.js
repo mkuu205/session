@@ -5,7 +5,6 @@ const fs = require('fs')
 const path = require('path')
 const pino = require('pino')
 const crypto = require('crypto')
-const connectDB = require('./mongo')
 
 const {
  default: makeWASocket,
@@ -17,7 +16,10 @@ const {
 
 const router = express.Router()
 
+const sessionsDir = path.join(__dirname, "sessions")
 const tempDir = path.join(__dirname, "temp")
+
+if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true })
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
 
 function removeFile(p) {
@@ -31,13 +33,18 @@ router.get('/', async (req, res) => {
  let num = req.query.number
 
  if (!num) {
-  return res.json({ error: "Missing number. Example: ?number=254712345678" })
+  return res.json({
+   error: "Missing number. Example: ?number=254712345678"
+  })
  }
 
  num = num.replace(/[^0-9]/g, '')
 
  const sessionPath = path.join(tempDir, id)
- if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true })
+
+ if (!fs.existsSync(sessionPath)) {
+  fs.mkdirSync(sessionPath, { recursive: true })
+ }
 
  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
@@ -50,40 +57,22 @@ router.get('/', async (req, res) => {
    },
    printQRInTerminal: false,
    logger: pino({ level: "silent" }),
-   browser: Browsers.windows("Chrome")
+   browser: Browsers.windows("Edge")
   })
 
   client.ev.on("creds.update", saveCreds)
 
-  let pairingSent = false
-
   client.ev.on("connection.update", async (update) => {
 
-   const { connection } = update
+   const { connection, lastDisconnect } = update
 
    if (connection === "connecting") {
     console.log("🔄 Connecting to WhatsApp...")
    }
 
-   if (!client.authState.creds.registered && !pairingSent) {
-
-    pairingSent = true
-
-    await delay(2000)
-
-    const code = await client.requestPairingCode(num)
-
-    console.log("Pair code:", code)
-
-    if (!res.headersSent) {
-     res.json({ code })
-    }
-
-   }
-
    if (connection === "open") {
 
-    console.log("✅ WhatsApp linked")
+    console.log("✅ Connection Open")
 
     await client.sendMessage(client.user.id, {
      text: "Generating your session..."
@@ -92,39 +81,29 @@ router.get('/', async (req, res) => {
     const credsPath = path.join(sessionPath, "creds.json")
 
     let sessionData = null
-    let attempts = 0
 
-    while (!sessionData && attempts < 30) {
+    while (!sessionData) {
 
      if (fs.existsSync(credsPath)) {
 
-      const raw = await fs.promises.readFile(credsPath).catch(() => null)
+      const raw = fs.readFileSync(credsPath)
 
       if (raw && raw.length > 100) {
-       try {
-        sessionData = JSON.parse(raw)
-       } catch {
-        sessionData = null
-       }
+       sessionData = JSON.parse(raw)
+       break
       }
 
      }
 
-     attempts++
      await delay(1000)
     }
 
-    if (!sessionData) throw new Error("Failed to read session")
-
     const sessionId = crypto.randomBytes(16).toString("hex")
 
-    const db = await connectDB()
-
-    await db.collection("sessions").insertOne({
-     sessionId: sessionId,
-     creds: sessionData,
-     createdAt: new Date()
-    })
+    fs.writeFileSync(
+     path.join(sessionsDir, `${sessionId}.json`),
+     JSON.stringify(sessionData)
+    )
 
     const shortSession = "kish_" + sessionId
 
@@ -148,16 +127,42 @@ router.get('/', async (req, res) => {
     removeFile(sessionPath)
    }
 
+   if (connection === "close") {
+
+    const code = lastDisconnect?.error?.output?.statusCode
+
+    console.log("Connection closed:", code)
+
+    if (code === 401) {
+     removeFile(sessionPath)
+    }
+
+   }
+
   })
+
+  if (!client.authState.creds.registered) {
+
+   await delay(2000)
+
+   const code = await client.requestPairingCode(num, "KISHTECH")
+
+   if (!res.headersSent) {
+    res.json({ code })
+   }
+
+  }
 
  } catch (err) {
 
-  console.log("Pairing error:", err)
+  console.log("service error:", err)
 
   removeFile(sessionPath)
 
   if (!res.headersSent) {
-   res.json({ error: "Service unavailable" })
+   res.json({
+    code: "Service Currently Unavailable"
+   })
   }
 
  }
