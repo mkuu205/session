@@ -1,86 +1,72 @@
 
-const express = require('express')
-const path = require('path')
-const fs = require('fs')
-const connectDB = require('./mongo')
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
 
-const app = express()
-const PORT = process.env.PORT || 8000
+const app = express();
+const PORT = process.env.PORT || 8000;
 
-require('events').EventEmitter.defaultMaxListeners = 500
+require('events').EventEmitter.defaultMaxListeners = 500;
 
-const qrRoutes = require('./qr')
-const codeRoutes = require('./pair')
+const qrRoutes = require('./qr');
+const codeRoutes = require('./pair');
 
-/* temp folder */
+/* folders */
 
-const tempDir = path.join(__dirname, "temp")
+const sessionsDir = path.join(__dirname, "sessions");
+const tempDir = path.join(__dirname, "temp");
 
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir);
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
 /* middleware */
 
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-/* API routes */
+/* API */
 
-app.use('/qr', qrRoutes)
-app.use('/code', codeRoutes)
+app.use('/qr', qrRoutes);
+app.use('/code', codeRoutes);
 
-/* SESSION DOWNLOAD FROM MONGODB */
+/* SESSION DOWNLOAD */
 
-app.get('/session/:id', async (req, res) => {
+app.get('/session/:id', (req, res) => {
 
- try {
+  const file = path.join(__dirname, "sessions", req.params.id + ".json");
 
-  const db = await connectDB()
-
-  const session = await db.collection("sessions").findOne({
-   sessionId: req.params.id
-  })
-
-  if (!session) {
-   return res.status(404).json({ error: "Session not found" })
+  if (!fs.existsSync(file)) {
+    return res.status(404).json({ error: "Session not found" });
   }
 
-  res.json(session.creds)
+  const data = fs.readFileSync(file);
 
- } catch (err) {
+  res.json(JSON.parse(data));
+});
 
-  console.error("Session fetch error:", err.message)
-
-  res.status(500).json({ error: "Database error" })
-
- }
-
-})
-
-/* HTML routes */
+/* HTML */
 
 app.get('/pair', (req, res) => {
- res.sendFile(path.join(__dirname, 'pair.html'))
-})
+  res.sendFile(path.join(__dirname, 'pair.html'));
+});
 
 app.get('/fork-check', (req, res) => {
- res.sendFile(path.join(__dirname, 'fork-check.html'))
-})
+  res.sendFile(path.join(__dirname, 'fork-check.html'));
+});
 
 app.get('/', (req, res) => {
- res.sendFile(path.join(__dirname, 'main.html'))
-})
+  res.sendFile(path.join(__dirname, 'main.html'));
+});
 
-/* error handler */
+/* errors */
 
 app.use((err, req, res, next) => {
- console.error("SERVER ERROR:", err.stack)
- res.status(500).send("Internal Server Error")
-})
-
-/* start server */
+  console.error("SERVER ERROR:", err.stack);
+  res.status(500).send("Internal Server Error");
+});
 
 app.listen(PORT, () => {
- console.log(`📡 Session Generator running on http://localhost:${PORT}`)
-})
+  console.log(`📡 Session Generator running on http://localhost:${PORT}`);
+});
 
-module.exports = app
+module.exports = app;
