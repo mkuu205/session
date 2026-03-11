@@ -20,7 +20,9 @@ const router = express.Router()
 
 const tempDir = path.join(__dirname, "temp")
 
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+if (!fs.existsSync(tempDir)) {
+ fs.mkdirSync(tempDir, { recursive: true })
+}
 
 function removeFile(FilePath) {
  if (!fs.existsSync(FilePath)) return
@@ -30,6 +32,7 @@ function removeFile(FilePath) {
 router.get('/', async (req, res) => {
 
  const id = makeid()
+ let responseSent = false
 
  async function RAVEN() {
 
@@ -61,9 +64,11 @@ router.get('/', async (req, res) => {
 
     /* SHOW QR PAGE */
 
-    if (qr) {
+    if (qr && !responseSent) {
 
      const qrImage = await QRCode.toDataURL(qr)
+
+     responseSent = true
 
      return res.send(`
 <!DOCTYPE html>
@@ -116,7 +121,11 @@ border-radius:20px
 `)
     }
 
+    /* SESSION GENERATION */
+
     if (connection === "open") {
+
+     console.log("✅ Connection Open")
 
      await client.sendMessage(client.user.id, {
       text: "Generating your session..."
@@ -163,7 +172,7 @@ border-radius:20px
 
      const shortSession = "kish_" + sessionId
 
-     const session = await client.sendMessage(client.user.id, {
+     const sessionMsg = await client.sendMessage(client.user.id, {
       text: shortSession
      })
 
@@ -172,7 +181,7 @@ border-radius:20px
        "Kish-MD linked successfully.\n\n" +
        "Do NOT share this session ID with anyone.\n\n" +
        "Example:\nSESSION=" + shortSession
-     },{ quoted: session })
+     },{ quoted: sessionMsg })
 
      await delay(2000)
 
@@ -181,7 +190,6 @@ border-radius:20px
      await delay(3000)
 
      removeFile(sessionPath)
-
     }
 
    })
@@ -190,7 +198,8 @@ border-radius:20px
 
    console.log(err)
 
-   if (!res.headersSent) {
+   if (!responseSent && !res.headersSent) {
+    responseSent = true
     res.json({ error: "Service unavailable" })
    }
 
