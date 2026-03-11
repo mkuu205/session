@@ -6,7 +6,7 @@ const pino = require('pino')
 const crypto = require('crypto')
 const QRCode = require('qrcode')
 
-const { connectDB } = require('./index')
+const connectDB = require('./db')
 
 const {
   default: makeWASocket,
@@ -19,6 +19,7 @@ const {
 const router = express.Router()
 
 const tempDir = path.join(__dirname, "temp")
+
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
 
 function removeFile(p) {
@@ -30,118 +31,76 @@ router.get('/', async (req, res) => {
 
   const id = makeid()
 
-  async function START() {
+  const sessionPath = path.join(tempDir, id)
 
-    const sessionPath = path.join(tempDir, id)
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+  try {
 
-    try {
+    const client = makeWASocket({
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(
+          state.keys,
+          pino({ level: 'fatal' })
+        )
+      },
+      logger: pino({ level: 'silent' }),
+      browser: Browsers.windows('Edge')
+    })
 
-      const client = makeWASocket({
-        auth: {
-          creds: state.creds,
-          keys: makeCacheableSignalKeyStore(
-            state.keys,
-            pino({ level: 'fatal' })
-          )
-        },
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: false,
-        browser: Browsers.windows('Edge')
-      })
+    client.ev.on('creds.update', saveCreds)
 
-      client.ev.on('creds.update', saveCreds)
+    client.ev.on('connection.update', async (update) => {
 
-      client.ev.on('connection.update', async (update) => {
+      const { connection, qr } = update
 
-        const { connection, lastDisconnect, qr } = update
+      if (qr && !res.headersSent) {
 
-        if (qr && !res.headersSent) {
+        const qrImage = await QRCode.toDataURL(qr)
 
-          const qrImage = await QRCode.toDataURL(qr)
+        res.send(`<img src="${qrImage}" width="300"/>`)
 
-          res.send(`<img src="${qrImage}" width="300"/>`)
+      }
 
-        }
+      if (connection === "open") {
 
-        if (connection === "open") {
+        const db = await connectDB()
 
-          const db = await connectDB()
+        const credsPath = path.join(sessionPath, "creds.json")
 
-          const credsPath = path.join(sessionPath, "creds.json")
+        let sessionData = JSON.parse(fs.readFileSync(credsPath))
 
-          let sessionData = null
+        const sessionId = crypto.randomBytes(16).toString("hex")
 
-          while (!sessionData) {
+        await db.collection("sessions").insertOne({
+          id: sessionId,
+          session: sessionData
+        })
 
-            if (fs.existsSync(credsPath)) {
+        const shortSession = "kish_" + sessionId
 
-              const raw = fs.readFileSync(credsPath)
+        await client.sendMessage(client.user.id, {
+          text: shortSession
+        })
 
-              if (raw && raw.length > 100) {
-                sessionData = JSON.parse(raw)
-                break
-              }
+        await delay(2000)
 
-            }
+        await client.ws.close()
 
-            await delay(1000)
+        removeFile(sessionPath)
 
-          }
+      }
 
-          const sessionId = crypto.randomBytes(16).toString("hex")
+    })
 
-          await db.collection("sessions").insertOne({
-            id: sessionId,
-            session: sessionData
-          })
+  } catch (err) {
 
-          const shortSession = "kish_" + sessionId
+    console.log(err)
 
-          await client.sendMessage(client.user.id, {
-            text: shortSession
-          })
-
-          await delay(2000)
-
-          await client.ws.close()
-
-          await delay(3000)
-
-          removeFile(sessionPath)
-
-        }
-
-        if (connection === "close") {
-
-          const code = lastDisconnect?.error?.output?.statusCode
-
-          if (code !== 401) {
-            await delay(5000)
-            START()
-          } else {
-            await delay(3000)
-            removeFile(sessionPath)
-          }
-
-        }
-
-      })
-
-    } catch (err) {
-
-      console.log(err)
-
-      await delay(3000)
-
-      removeFile(sessionPath)
-
-    }
+    removeFile(sessionPath)
 
   }
-
-  await START()
 
 })
 
