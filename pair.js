@@ -5,7 +5,7 @@ const path = require('path')
 const pino = require('pino')
 const crypto = require('crypto')
 
-const { connectDB } = require('./index')
+const connectDB = require('./db')
 
 const {
   default: makeWASocket,
@@ -18,6 +18,7 @@ const {
 const router = express.Router()
 
 const tempDir = path.join(__dirname, "temp")
+
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
 
 function removeFile(p) {
@@ -38,139 +39,90 @@ router.get('/', async (req, res) => {
 
   num = num.replace(/[^0-9]/g, '')
 
-  async function START() {
+  const sessionPath = path.join(tempDir, id)
 
-    const sessionPath = path.join(tempDir, id)
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+  try {
 
-    try {
+    const client = makeWASocket({
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(
+          state.keys,
+          pino({ level: 'fatal' })
+        )
+      },
+      printQRInTerminal: false,
+      logger: pino({ level: 'silent' }),
+      browser: Browsers.windows('Edge')
+    })
 
-      const client = makeWASocket({
-        auth: {
-          creds: state.creds,
-          keys: makeCacheableSignalKeyStore(
-            state.keys,
-            pino({ level: 'fatal' })
-          )
-        },
-        printQRInTerminal: false,
-        logger: pino({ level: 'silent' }),
-        browser: Browsers.windows('Edge')
-      })
+    client.ev.on('creds.update', saveCreds)
 
-      client.ev.on('creds.update', saveCreds)
+    client.ev.on('connection.update', async (update) => {
 
-      client.ev.on('connection.update', async (update) => {
+      const { connection } = update
 
-        const { connection, lastDisconnect } = update
+      if (connection === "open") {
 
-        if (connection === "open") {
+        const db = await connectDB()
 
-          const db = await connectDB()
+        const credsPath = path.join(sessionPath, "creds.json")
 
-          await client.sendMessage(client.user.id, {
-            text: "Generating your session..."
-          })
+        let sessionData = JSON.parse(fs.readFileSync(credsPath))
 
-          const credsPath = path.join(sessionPath, "creds.json")
+        const sessionId = crypto.randomBytes(16).toString("hex")
 
-          let sessionData = null
+        await db.collection("sessions").insertOne({
+          id: sessionId,
+          session: sessionData
+        })
 
-          while (!sessionData) {
+        const shortSession = "kish_" + sessionId
 
-            if (fs.existsSync(credsPath)) {
+        const msg = await client.sendMessage(client.user.id, {
+          text: shortSession
+        })
 
-              const raw = fs.readFileSync(credsPath)
+        await client.sendMessage(client.user.id, {
+          text:
+            "`Session generated successfully!`\n\n" +
+            "Do NOT share this session ID.\n\n" +
+            "Example:\nSESSION=" + shortSession
+        }, { quoted: msg })
 
-              if (raw && raw.length > 100) {
-                sessionData = JSON.parse(raw)
-                break
-              }
+        await delay(2000)
 
-            }
+        await client.ws.close()
 
-            await delay(1000)
-
-          }
-
-          const sessionId = crypto.randomBytes(16).toString("hex")
-
-          await db.collection("sessions").insertOne({
-            id: sessionId,
-            session: sessionData
-          })
-
-          const shortSession = "kish_" + sessionId
-
-          const session = await client.sendMessage(client.user.id, {
-            text: shortSession
-          })
-
-          await client.sendMessage(client.user.id, {
-            text:
-              "`Kish-MD linked successfully!\n\n" +
-              "Do NOT share this session.\n\n" +
-              "Example:\nSESSION=" + shortSession + "`"
-          }, { quoted: session })
-
-          await delay(2000)
-
-          await client.ws.close()
-
-          await delay(3000)
-
-          removeFile(sessionPath)
-
-        }
-
-        if (connection === "close") {
-
-          const code = lastDisconnect?.error?.output?.statusCode
-
-          if (code !== 401) {
-            await delay(5000)
-            START()
-          } else {
-            await delay(3000)
-            removeFile(sessionPath)
-          }
-
-        }
-
-      })
-
-      if (!client.authState.creds.registered) {
-
-        await delay(3000)
-
-        const code = await client.requestPairingCode(num, "KISHTECH")
-
-        if (!res.headersSent) {
-          res.send({ code })
-        }
+        removeFile(sessionPath)
 
       }
 
-    } catch (err) {
+    })
 
-      console.log(err)
+    if (!client.authState.creds.registered) {
 
       await delay(3000)
 
-      removeFile(sessionPath)
+      const code = await client.requestPairingCode(num)
 
-      if (!res.headersSent) {
-        res.send({
-          code: "Service Currently Unavailable"
-        })
-      }
+      res.send({ code })
 
     }
 
-  }
+  } catch (err) {
 
-  await START()
+    console.log(err)
+
+    removeFile(sessionPath)
+
+    res.send({
+      error: "Service unavailable"
+    })
+
+  }
 
 })
 
