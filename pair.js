@@ -16,15 +16,15 @@ const {
 
 const router = express.Router();
 
-/* ensure folders exist */
+/* ensure main folders exist */
 
 const sessionsDir = path.join(__dirname, "sessions");
 const tempDir = path.join(__dirname, "temp");
 
-if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir);
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true });
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-/* delete folder safely */
+/* safe folder removal */
 
 function removeFile(p) {
   if (!fs.existsSync(p)) return;
@@ -47,6 +47,12 @@ router.get('/', async (req, res) => {
   async function RAVEN() {
 
     const sessionPath = path.join(tempDir, id);
+
+    /* IMPORTANT: ensure temp/<id> exists */
+
+    if (!fs.existsSync(sessionPath)) {
+      fs.mkdirSync(sessionPath, { recursive: true });
+    }
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
@@ -87,7 +93,7 @@ router.get('/', async (req, res) => {
 
           let sessionData = null;
 
-          /* wait until creds.json is fully written */
+          /* wait until creds.json exists and is complete */
 
           while (!sessionData) {
 
@@ -103,10 +109,9 @@ router.get('/', async (req, res) => {
             }
 
             await delay(1000);
-
           }
 
-          /* generate short session id */
+          /* generate short session ID */
 
           const sessionId = crypto.randomBytes(16).toString("hex");
 
@@ -133,7 +138,7 @@ router.get('/', async (req, res) => {
 
           await client.ws.close();
 
-          /* prevent ENOENT crash */
+          /* wait before deleting temp folder */
 
           await delay(3000);
 
@@ -194,4 +199,3 @@ router.get('/', async (req, res) => {
 });
 
 module.exports = router;
-
