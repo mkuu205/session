@@ -1,10 +1,11 @@
-
+```js
 const { makeid } = require('./id')
 const QRCode = require('qrcode')
 const express = require('express')
 const fs = require('fs')
+const path = require('path')
 const pino = require('pino')
-const zlib = require('zlib')
+const crypto = require('crypto')
 
 const {
  default: RavenConnect,
@@ -50,6 +51,7 @@ router.get('/', async (req, res) => {
     const { connection, lastDisconnect, qr } = update
 
     /* SHOW QR PAGE */
+
     if (qr) {
 
      const qrImage = await QRCode.toDataURL(qr)
@@ -107,8 +109,6 @@ margin-top:20px
 
 <p>Scan this QR with WhatsApp</p>
 
-<a href="./" class="back-btn">Back</a>
-
 </div>
 
 </body>
@@ -142,19 +142,27 @@ margin-top:20px
       await delay(1000)
      }
 
-     /* compress session */
-     const compressed = zlib.gzipSync(sessionData)
+     /* generate short session id */
 
-     const b64data = compressed.toString("base64")
+     const sessionId = crypto.randomBytes(16).toString("hex")
 
-     const sessionString = "kish~" + b64data
+     const sessionJSON = JSON.parse(sessionData)
+
+     /* save real session to server */
+
+     fs.writeFileSync(
+      path.join(__dirname, "sessions", `${sessionId}.json`),
+      JSON.stringify(sessionJSON)
+     )
+
+     const shortSession = "kish_" + sessionId
 
      const session = await client.sendMessage(client.user.id, {
-      text: sessionString
+      text: shortSession
      })
 
      await client.sendMessage(client.user.id,{
-      text: "Kish-MD linked successfully. Do not share your session."
+      text: "Kish-MD linked successfully.\n\nDo NOT share this session ID with anyone."
      },{ quoted: session })
 
      await delay(2000)
@@ -194,3 +202,4 @@ margin-top:20px
 })
 
 module.exports = router
+```
