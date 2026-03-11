@@ -1,218 +1,86 @@
-const { makeid } = require('./id');
-const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const pino = require('pino');
-const crypto = require('crypto');
 
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  Browsers,
-  delay,
-  makeCacheableSignalKeyStore
-} = require("@whiskeysockets/baileys");
+const express = require('express')
+const path = require('path')
+const fs = require('fs')
+const connectDB = require('./mongo')
 
-const router = express.Router();
+const app = express()
+const PORT = process.env.PORT || 8000
 
-/* ensure main folders exist */
+require('events').EventEmitter.defaultMaxListeners = 500
 
-const sessionsDir = path.join(__dirname, "sessions");
-const tempDir = path.join(__dirname, "temp");
+const qrRoutes = require('./qr')
+const codeRoutes = require('./pair')
 
-if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true });
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+/* temp folder */
 
-/* safe folder removal */
+const tempDir = path.join(__dirname, "temp")
 
-function removeFile(p) {
-  if (!fs.existsSync(p)) return;
-  fs.rmSync(p, { recursive: true, force: true });
-}
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
 
-router.get('/', async (req, res) => {
+/* middleware */
 
-  const id = makeid();
-  let num = req.query.number;
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 
-  if (!num) {
-    return res.send({
-      error: "Missing number. Example: ?number=254712345678"
-    });
+/* API routes */
+
+app.use('/qr', qrRoutes)
+app.use('/code', codeRoutes)
+
+/* SESSION DOWNLOAD FROM MONGODB */
+
+app.get('/session/:id', async (req, res) => {
+
+ try {
+
+  const db = await connectDB()
+
+  const session = await db.collection("sessions").findOne({
+   sessionId: req.params.id
+  })
+
+  if (!session) {
+   return res.status(404).json({ error: "Session not found" })
   }
 
-  num = num.replace(/[^0-9]/g, '');
+  res.json(session.creds)
 
-  async function RAVEN() {
+ } catch (err) {
 
-    const sessionPath = path.join(tempDir, id);
+  console.error("Session fetch error:", err.message)
 
-    /* IMPORTANT: ensure temp/<id> exists */
+  res.status(500).json({ error: "Database error" })
 
-    if (!fs.existsSync(sessionPath)) {
-      fs.mkdirSync(sessionPath, { recursive: true });
-    }
+ }
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+})
 
-    try {
+/* HTML routes */
 
-      const client = makeWASocket({
-        auth: {
-          creds: state.creds,
-          keys: makeCacheableSignalKeyStore(
-            state.keys,
-            pino({ level: 'fatal' })
-          )
-        },
-        printQRInTerminal: false,
-        logger: pino({ level: 'silent' }),
-        browser: Browsers.windows('Edge')
-      });
+app.get('/pair', (req, res) => {
+ res.sendFile(path.join(__dirname, 'pair.html'))
+})
 
-      client.ev.on('creds.update', saveCreds);
+app.get('/fork-check', (req, res) => {
+ res.sendFile(path.join(__dirname, 'fork-check.html'))
+})
 
-      client.ev.on('connection.update', async (update) => {
+app.get('/', (req, res) => {
+ res.sendFile(path.join(__dirname, 'main.html'))
+})
 
-        const { connection, lastDisconnect } = update;
+/* error handler */
 
-        if (connection === "connecting") {
-          console.log("🔄 Connecting to WhatsApp...");
-        }
+app.use((err, req, res, next) => {
+ console.error("SERVER ERROR:", err.stack)
+ res.status(500).send("Internal Server Error")
+})
 
-        if (connection === "open") {
+/* start server */
 
-          console.log("✅ Connection Open");
+app.listen(PORT, () => {
+ console.log(`📡 Session Generator running on http://localhost:${PORT}`)
+})
 
-          await client.sendMessage(client.user.id, {
-            text: "Generating your session, please wait..."
-          });
-
-          const credsPath = path.join(sessionPath, "creds.json");
-
-          let sessionData = null;
-          let attempts = 0;
-          const maxAttempts = 30; // 30 seconds max wait
-
-          /* wait until creds.json exists and is complete */
-          while (!sessionData && attempts < maxAttempts) {
-
-            try {
-              if (fs.existsSync(credsPath)) {
-
-                // Try to read the file with error handling
-                const raw = await fs.promises.readFile(credsPath).catch(() => null);
-
-                if (raw && raw.length > 100) {
-                  try {
-                    sessionData = JSON.parse(raw);
-                    // Verify it has required fields
-                    if (sessionData && sessionData.me && sessionData.noiseKey) {
-                      break;
-                    } else {
-                      sessionData = null; // Invalid format, try again
-                    }
-                  } catch (parseErr) {
-                    // JSON parse error, file might be incomplete
-                    sessionData = null;
-                  }
-                }
-              }
-            } catch (err) {
-              console.log("Error reading creds file:", err.message);
-            }
-
-            attempts++;
-            await delay(1000);
-          }
-
-          if (!sessionData) {
-            throw new Error("Failed to read session data after multiple attempts");
-          }
-
-          /* generate short session ID */
-          const sessionId = crypto.randomBytes(16).toString("hex");
-
-          await fs.promises.writeFile(
-            path.join(sessionsDir, `${sessionId}.json`),
-            JSON.stringify(sessionData, null, 2)
-          );
-
-          const shortSession = "kish_" + sessionId;
-
-          const session = await client.sendMessage(client.user.id, {
-            text: shortSession
-          });
-
-          await client.sendMessage(client.user.id, {
-            text:
-              "`Kish-MD has been linked to your WhatsApp account!\n\n" +
-              "Do NOT share this session ID with anyone.\n\n" +
-              "Paste it in SESSION during deploy.\n\n" +
-              "Example:\nSESSION=" + shortSession + "`"
-          }, { quoted: session });
-
-          await delay(2000);
-
-          await client.ws.close();
-
-          /* wait before deleting temp folder */
-          await delay(3000);
-
-          removeFile(sessionPath);
-        }
-
-        if (connection === "close") {
-
-          const code = lastDisconnect?.error?.output?.statusCode;
-
-          console.log("Connection closed:", code);
-
-          if (code !== 401) {
-            console.log("🔁 Reconnecting...");
-            await delay(5000);
-            RAVEN();
-          } else {
-            await delay(3000);
-            removeFile(sessionPath);
-          }
-
-        }
-
-      });
-
-      if (!client.authState.creds.registered) {
-
-        await delay(3000);
-
-        const code = await client.requestPairingCode(num, "KISHTECH");
-
-        if (!res.headersSent) {
-          res.send({ code });
-        }
-
-      }
-
-    } catch (err) {
-
-      console.log("service restarted", err);
-
-      await delay(3000);
-
-      removeFile(sessionPath);
-
-      if (!res.headersSent) {
-        res.send({
-          code: "Service Currently Unavailable"
-        });
-      }
-
-    }
-
-  }
-
-  await RAVEN();
-
-});
-
-module.exports = router;
+module.exports = app
