@@ -18,7 +18,6 @@ const {
 const router = express.Router()
 
 const tempDir = path.join(__dirname, "temp")
-
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
 
 function removeFile(p) {
@@ -32,145 +31,136 @@ router.get('/', async (req, res) => {
  let num = req.query.number
 
  if (!num) {
-  return res.send({
-   error: "Missing number. Example: ?number=254712345678"
-  })
+  return res.json({ error: "Missing number. Example: ?number=254712345678" })
  }
 
  num = num.replace(/[^0-9]/g, '')
 
- async function RAVEN() {
+ const sessionPath = path.join(tempDir, id)
+ if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true })
 
-  const sessionPath = path.join(tempDir, id)
+ const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
-  if (!fs.existsSync(sessionPath)) {
-   fs.mkdirSync(sessionPath, { recursive: true })
-  }
+ try {
 
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+  const client = makeWASocket({
+   auth: {
+    creds: state.creds,
+    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }))
+   },
+   printQRInTerminal: false,
+   logger: pino({ level: "silent" }),
+   browser: Browsers.windows("Chrome")
+  })
 
-  try {
+  client.ev.on("creds.update", saveCreds)
 
-   const client = makeWASocket({
-    auth: {
-     creds: state.creds,
-     keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }))
-    },
-    printQRInTerminal: false,
-    logger: pino({ level: 'silent' }),
-    browser: Browsers.windows('Edge')
-   })
+  let pairingSent = false
 
-   client.ev.on('creds.update', saveCreds)
+  client.ev.on("connection.update", async (update) => {
 
-   client.ev.on('connection.update', async (update) => {
+   const { connection } = update
 
-    const { connection } = update
+   if (connection === "connecting") {
+    console.log("🔄 Connecting to WhatsApp...")
+   }
 
-    if (connection === "connecting") {
-     console.log("🔄 Connecting to WhatsApp...")
-    }
+   if (!client.authState.creds.registered && !pairingSent) {
 
-    if (connection === "open") {
+    pairingSent = true
 
-     console.log("✅ Connection Open")
+    await delay(2000)
 
-     await client.sendMessage(client.user.id, {
-      text: "Generating your session, please wait..."
-     })
+    const code = await client.requestPairingCode(num)
 
-     const credsPath = path.join(sessionPath, "creds.json")
-
-     let sessionData = null
-     let attempts = 0
-
-     while (!sessionData && attempts < 30) {
-
-      if (fs.existsSync(credsPath)) {
-
-       const raw = await fs.promises.readFile(credsPath).catch(() => null)
-
-       if (raw && raw.length > 100) {
-        try {
-         sessionData = JSON.parse(raw)
-        } catch {
-         sessionData = null
-        }
-       }
-
-      }
-
-      attempts++
-      await delay(1000)
-     }
-
-     if (!sessionData) {
-      throw new Error("Failed to read session data")
-     }
-
-     const sessionId = crypto.randomBytes(16).toString("hex")
-
-     const db = await connectDB()
-
-     await db.collection("sessions").insertOne({
-      sessionId: sessionId,
-      creds: sessionData,
-      createdAt: new Date()
-     })
-
-     const shortSession = "kish_" + sessionId
-
-     const sessionMsg = await client.sendMessage(client.user.id, {
-      text: shortSession
-     })
-
-     await client.sendMessage(client.user.id, {
-      text:
-       "Kish-MD linked successfully.\n\n" +
-       "Do NOT share this session ID.\n\n" +
-       "Example:\nSESSION=" + shortSession
-     }, { quoted: sessionMsg })
-
-     await delay(2000)
-
-     await client.ws.close()
-
-     await delay(3000)
-
-     removeFile(sessionPath)
-    }
-
-   })
-
-   if (!client.authState.creds.registered) {
-
-    await delay(3000)
-
-    const code = await client.requestPairingCode(num, "KISHTECH")
+    console.log("Pair code:", code)
 
     if (!res.headersSent) {
-     res.send({ code })
+     res.json({ code })
     }
 
    }
 
-  } catch (err) {
+   if (connection === "open") {
 
-   console.log("Service error:", err)
+    console.log("✅ WhatsApp linked")
 
-   removeFile(sessionPath)
-
-   if (!res.headersSent) {
-    res.send({
-     code: "Service Currently Unavailable"
+    await client.sendMessage(client.user.id, {
+     text: "Generating your session..."
     })
+
+    const credsPath = path.join(sessionPath, "creds.json")
+
+    let sessionData = null
+    let attempts = 0
+
+    while (!sessionData && attempts < 30) {
+
+     if (fs.existsSync(credsPath)) {
+
+      const raw = await fs.promises.readFile(credsPath).catch(() => null)
+
+      if (raw && raw.length > 100) {
+       try {
+        sessionData = JSON.parse(raw)
+       } catch {
+        sessionData = null
+       }
+      }
+
+     }
+
+     attempts++
+     await delay(1000)
+    }
+
+    if (!sessionData) throw new Error("Failed to read session")
+
+    const sessionId = crypto.randomBytes(16).toString("hex")
+
+    const db = await connectDB()
+
+    await db.collection("sessions").insertOne({
+     sessionId: sessionId,
+     creds: sessionData,
+     createdAt: new Date()
+    })
+
+    const shortSession = "kish_" + sessionId
+
+    const msg = await client.sendMessage(client.user.id, {
+     text: shortSession
+    })
+
+    await client.sendMessage(client.user.id,{
+     text:
+      "Kish-MD linked successfully.\n\n" +
+      "Do NOT share this session ID.\n\n" +
+      "Example:\nSESSION=" + shortSession
+    },{ quoted: msg })
+
+    await delay(2000)
+
+    await client.ws.close()
+
+    await delay(2000)
+
+    removeFile(sessionPath)
    }
 
+  })
+
+ } catch (err) {
+
+  console.log("Pairing error:", err)
+
+  removeFile(sessionPath)
+
+  if (!res.headersSent) {
+   res.json({ error: "Service unavailable" })
   }
 
  }
-
- await RAVEN()
 
 })
 
