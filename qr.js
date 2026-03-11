@@ -1,9 +1,10 @@
-const { makeid } = require('./id')
-const express = require('express')
-const fs = require('fs')
-const path = require('path')
-const pino = require('pino')
-const QRCode = require('qrcode')
+const { makeid } = require('./id');
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const pino = require('pino');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
 
 const {
   default: makeWASocket,
@@ -11,28 +12,94 @@ const {
   Browsers,
   delay,
   makeCacheableSignalKeyStore
-} = require("@whiskeysockets/baileys")
+} = require("@whiskeysockets/baileys");
 
-const router = express.Router()
+const router = express.Router();
 
-const tempDir = path.join(__dirname, "temp")
+/* folders */
 
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
+const sessionsDir = path.join(__dirname, "sessions");
+const tempDir = path.join(__dirname, "temp");
+
+if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir);
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+
+/* remove folder */
 
 function removeFile(p) {
-  if (!fs.existsSync(p)) return
-  fs.rmSync(p, { recursive: true, force: true })
+  if (!fs.existsSync(p)) return;
+  fs.rmSync(p, { recursive: true, force: true });
 }
 
 router.get('/', async (req, res) => {
 
-  const id = makeid()
+  const id = makeid();
+
+  /* loading screen */
+
+  res.write(`
+<!DOCTYPE html>
+<html>
+<head>
+<title>Kish-MD | Preparing QR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{
+display:flex;
+justify-content:center;
+align-items:center;
+height:100vh;
+margin:0;
+background:#000;
+font-family:Arial;
+color:white;
+text-align:center;
+}
+
+.loader{
+width:80px;
+height:80px;
+border-radius:50%;
+border:6px solid rgba(255,255,255,0.1);
+border-top:6px solid #9d50bb;
+animation:spin 1s linear infinite;
+margin:30px auto;
+}
+
+@keyframes spin{
+0%{transform:rotate(0deg);}
+100%{transform:rotate(360deg);}
+}
+
+.dots span{
+animation:blink 1.4s infinite;
+}
+
+.dots span:nth-child(2){animation-delay:.2s}
+.dots span:nth-child(3){animation-delay:.4s}
+
+@keyframes blink{
+0%,80%,100%{opacity:0}
+40%{opacity:1}
+}
+</style>
+</head>
+
+<body>
+
+<div>
+<h1>Kish-MD</h1>
+<div class="loader"></div>
+<p>Preparing QR Code<span class="dots"><span>.</span><span>.</span><span>.</span></span></p>
+</div>
+`);
 
   async function RAVEN() {
 
-    const sessionPath = path.join(tempDir, id)
+    const sessionPath = path.join(tempDir, id);
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
     try {
 
@@ -41,244 +108,153 @@ router.get('/', async (req, res) => {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(
             state.keys,
-            pino({ level: "fatal" })
+            pino({ level: 'fatal' })
           )
         },
-        logger: pino({ level: "silent" }),
+        logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.macOS("Desktop")
-      })
+        browser: Browsers.windows('Edge')
+      });
 
-      client.ev.on('creds.update', saveCreds)
+      client.ev.on('creds.update', saveCreds);
 
-      client.ev.on("connection.update", async (update) => {
+      client.ev.on('connection.update', async (update) => {
 
-        const { connection, lastDisconnect, qr } = update
+        const { connection, lastDisconnect, qr } = update;
 
         /* show QR */
 
-        if (qr && !res.headersSent) {
+        if (qr) {
 
-          const qrImage = await QRCode.toDataURL(qr)
+          const qrImage = await QRCode.toDataURL(qr);
 
-          res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-<title>Kish-MD | QR CODE</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<style>
-body {
-display:flex;
-justify-content:center;
-align-items:center;
-min-height:100vh;
-margin:0;
-background-color:#000;
-font-family:Arial,sans-serif;
-color:#fff;
-text-align:center;
-padding:20px;
-box-sizing:border-box;
-}
+          res.write(`
+<script>
+document.body.innerHTML = \`
+<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;font-family:Arial;color:white;text-align:center">
 
-.container {
-width:100%;
-max-width:600px;
-}
-
-.qr-container {
-position:relative;
-margin:20px auto;
-width:300px;
-height:300px;
-display:flex;
-justify-content:center;
-align-items:center;
-}
-
-.qr-code {
-width:300px;
-height:300px;
-padding:10px;
-background:white;
-border-radius:20px;
-box-shadow:
-0 0 0 10px rgba(255,255,255,0.1),
-0 0 0 20px rgba(255,255,255,0.05),
-0 0 30px rgba(255,255,255,0.2);
-}
-
-.qr-code img {
-width:100%;
-height:100%;
-}
-
-h1 {
-margin:0 0 15px 0;
-font-size:28px;
-font-weight:800;
-text-shadow:0 0 10px rgba(255,255,255,0.3);
-}
-
-p {
-color:#ccc;
-margin:20px 0;
-font-size:16px;
-}
-
-.back-btn {
-display:inline-block;
-padding:12px 25px;
-margin-top:15px;
-background:linear-gradient(135deg,#6e48aa 0%,#9d50bb 100%);
-color:white;
-text-decoration:none;
-border-radius:30px;
-font-weight:bold;
-border:none;
-cursor:pointer;
-transition:all 0.3s ease;
-box-shadow:0 4px 15px rgba(0,0,0,0.2);
-}
-
-.back-btn:hover {
-transform:translateY(-2px);
-box-shadow:0 6px 20px rgba(0,0,0,0.3);
-}
-
-.pulse {
-animation:pulse 2s infinite;
-}
-
-@keyframes pulse {
-0% { box-shadow:0 0 0 0 rgba(255,255,255,0.4); }
-70% { box-shadow:0 0 0 15px rgba(255,255,255,0); }
-100% { box-shadow:0 0 0 0 rgba(255,255,255,0); }
-}
-
-@media (max-width:480px) {
-.qr-container { width:260px; height:260px; }
-.qr-code { width:220px; height:220px; }
-h1 { font-size:24px; }
-}
-</style>
-</head>
-
-<body>
-
-<div class="container">
+<div>
 
 <h1>Kish-MD QR CODE</h1>
 
-<div class="qr-container">
-<div class="qr-code pulse">
-<img src="${qrImage}" alt="QR Code"/>
-</div>
+<div style="background:white;padding:10px;border-radius:20px;width:300px;height:300px;margin:auto">
+<img src="${qrImage}" style="width:100%;height:100%">
 </div>
 
-<p>Scan this QR code with your WhatsApp to connect</p>
+<p style="color:#ccc">Scan with WhatsApp to connect</p>
 
-<a href="./" class="back-btn">Back</a>
+<a href="./" style="display:inline-block;padding:10px 20px;background:#9d50bb;color:white;border-radius:30px;text-decoration:none">Back</a>
 
 </div>
-
-<script>
-document.querySelector('.back-btn').addEventListener('mousedown',function(){
-this.style.transform='translateY(1px)'
-this.style.boxShadow='0 2px 10px rgba(0,0,0,0.2)'
-})
-
-document.querySelector('.back-btn').addEventListener('mouseup',function(){
-this.style.transform='translateY(-2px)'
-this.style.boxShadow='0 6px 20px rgba(0,0,0,0.3)'
-})
+</div>
+\`
 </script>
-
-</body>
-</html>
-`)
+`);
         }
 
-        /* connection open */
+        /* connected */
 
         if (connection === "open") {
 
-          console.log("Connected")
+          console.log("✅ Connection Open");
 
           await client.sendMessage(client.user.id, {
-            text: "Generating your session_id... please wait"
-          })
+            text: "Generating your session, please wait..."
+          });
 
-          await delay(5000)
+          const credsPath = path.join(sessionPath, "creds.json");
 
-          const credsPath = path.join(sessionPath, "creds.json")
+          let sessionData = null;
 
-          const data = fs.readFileSync(credsPath)
+          while (!sessionData) {
 
-          const session = Buffer.from(data).toString("base64")
+            if (fs.existsSync(credsPath)) {
 
-          const msg = await client.sendMessage(client.user.id, {
-            text: session
-          })
+              const raw = fs.readFileSync(credsPath);
+
+              if (raw && raw.length > 100) {
+                sessionData = JSON.parse(raw);
+                break;
+              }
+
+            }
+
+            await delay(1000);
+
+          }
+
+          /* create short session */
+
+          const sessionId = crypto.randomBytes(16).toString("hex");
+
+          fs.writeFileSync(
+            path.join(sessionsDir, `${sessionId}.json`),
+            JSON.stringify(sessionData)
+          );
+
+          const shortSession = "kish_" + sessionId;
+
+          const session = await client.sendMessage(client.user.id, {
+            text: shortSession
+          });
 
           await client.sendMessage(client.user.id, {
             text:
-`Kish-MD has been linked to your WhatsApp account!
+              "`Kish-MD has been linked to your WhatsApp account!\n\n" +
+              "Do NOT share this session ID with anyone.\n\n" +
+              "Paste it in SESSION during deploy.\n\n" +
+              "Example:\nSESSION=" + shortSession + "`"
+          }, { quoted: session });
 
-Do NOT share this session ID with anyone.
+          await delay(2000);
 
-Paste it in your deploy config as SESSION.
+          await client.ws.close();
 
-Enjoy using Kish-MD 🎉`
-          }, { quoted: msg })
+          await delay(3000);
 
-          await delay(2000)
-
-          await client.ws.close()
-
-          await delay(3000)
-
-          removeFile(sessionPath)
+          removeFile(sessionPath);
         }
-
-        /* reconnect logic */
 
         if (connection === "close") {
 
-          const code = lastDisconnect?.error?.output?.statusCode
+          const code = lastDisconnect?.error?.output?.statusCode;
 
-          console.log("Connection closed:", code)
+          console.log("Connection closed:", code);
 
           if (code !== 401) {
-            await delay(5000)
-            RAVEN()
+
+            console.log("🔁 Reconnecting...");
+
+            await delay(5000);
+
+            RAVEN();
+
           } else {
-            removeFile(sessionPath)
+
+            await delay(3000);
+
+            removeFile(sessionPath);
+
           }
 
         }
 
-      })
+      });
 
     } catch (err) {
 
-      console.log(err)
+      console.log("service restarted", err);
 
-      removeFile(sessionPath)
+      await delay(3000);
 
-      if (!res.headersSent) {
-        res.send({
-          error: "Service Currently Unavailable"
-        })
-      }
+      removeFile(sessionPath);
 
     }
 
   }
 
-  await RAVEN()
+  await RAVEN();
 
-})
+});
 
-module.exports = router
+module.exports = router;
