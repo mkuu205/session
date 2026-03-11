@@ -24,7 +24,7 @@ const tempDir = path.join(__dirname, "temp");
 if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir);
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
-/* remove folder */
+/* delete folder */
 
 function removeFile(p) {
   if (!fs.existsSync(p)) return;
@@ -34,66 +34,6 @@ function removeFile(p) {
 router.get('/', async (req, res) => {
 
   const id = makeid();
-
-  /* loading screen */
-
-  res.write(`
-<!DOCTYPE html>
-<html>
-<head>
-<title>Kish-MD | Preparing QR</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<style>
-body{
-display:flex;
-justify-content:center;
-align-items:center;
-height:100vh;
-margin:0;
-background:#000;
-font-family:Arial;
-color:white;
-text-align:center;
-}
-
-.loader{
-width:80px;
-height:80px;
-border-radius:50%;
-border:6px solid rgba(255,255,255,0.1);
-border-top:6px solid #9d50bb;
-animation:spin 1s linear infinite;
-margin:30px auto;
-}
-
-@keyframes spin{
-0%{transform:rotate(0deg);}
-100%{transform:rotate(360deg);}
-}
-
-.dots span{
-animation:blink 1.4s infinite;
-}
-
-.dots span:nth-child(2){animation-delay:.2s}
-.dots span:nth-child(3){animation-delay:.4s}
-
-@keyframes blink{
-0%,80%,100%{opacity:0}
-40%{opacity:1}
-}
-</style>
-</head>
-
-<body>
-
-<div>
-<h1>Kish-MD</h1>
-<div class="loader"></div>
-<p>Preparing QR Code<span class="dots"><span>.</span><span>.</span><span>.</span></span></p>
-</div>
-`);
 
   async function RAVEN() {
 
@@ -124,31 +64,98 @@ animation:blink 1.4s infinite;
 
         /* show QR */
 
-        if (qr) {
+        if (qr && !res.headersSent) {
 
           const qrImage = await QRCode.toDataURL(qr);
 
-          res.write(`
-<script>
-document.body.innerHTML = \`
-<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;font-family:Arial;color:white;text-align:center">
+          res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+<title>Kish-MD | QR CODE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<div>
+<style>
+
+body{
+display:flex;
+justify-content:center;
+align-items:center;
+min-height:100vh;
+margin:0;
+background:#000;
+font-family:Arial,sans-serif;
+color:#fff;
+text-align:center;
+padding:20px;
+box-sizing:border-box;
+}
+
+.container{
+max-width:600px;
+width:100%;
+}
+
+.qr-box{
+background:white;
+padding:15px;
+border-radius:20px;
+width:300px;
+height:300px;
+margin:auto;
+box-shadow:
+0 0 0 10px rgba(255,255,255,0.1),
+0 0 0 20px rgba(255,255,255,0.05),
+0 0 30px rgba(255,255,255,0.2);
+}
+
+.qr-box img{
+width:100%;
+height:100%;
+}
+
+h1{
+font-size:28px;
+margin-bottom:15px;
+font-weight:800;
+}
+
+p{
+color:#ccc;
+}
+
+.back-btn{
+display:inline-block;
+margin-top:20px;
+padding:12px 25px;
+background:linear-gradient(135deg,#6e48aa,#9d50bb);
+color:white;
+text-decoration:none;
+border-radius:30px;
+font-weight:bold;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
 
 <h1>Kish-MD QR CODE</h1>
 
-<div style="background:white;padding:10px;border-radius:20px;width:300px;height:300px;margin:auto">
-<img src="${qrImage}" style="width:100%;height:100%">
+<div class="qr-box">
+<img src="${qrImage}">
 </div>
 
-<p style="color:#ccc">Scan with WhatsApp to connect</p>
+<p>Scan this QR code with WhatsApp to connect</p>
 
-<a href="./" style="display:inline-block;padding:10px 20px;background:#9d50bb;color:white;border-radius:30px;text-decoration:none">Back</a>
+<a href="./" class="back-btn">Back</a>
 
 </div>
-</div>
-\`
-</script>
+
+</body>
+</html>
 `);
         }
 
@@ -165,6 +172,8 @@ document.body.innerHTML = \`
           const credsPath = path.join(sessionPath, "creds.json");
 
           let sessionData = null;
+
+          /* wait until creds.json exists */
 
           while (!sessionData) {
 
@@ -183,7 +192,7 @@ document.body.innerHTML = \`
 
           }
 
-          /* create short session */
+          /* create session id */
 
           const sessionId = crypto.randomBytes(16).toString("hex");
 
@@ -248,6 +257,12 @@ document.body.innerHTML = \`
       await delay(3000);
 
       removeFile(sessionPath);
+
+      if (!res.headersSent) {
+        res.send({
+          error: "Service Currently Unavailable"
+        });
+      }
 
     }
 
