@@ -1,174 +1,176 @@
 
-const PastebinAPI = require('pastebin-js');
-const pastebin = new PastebinAPI('EMWTMkQAVfJa9kM-MRUrxd5Oku1U7pgL');
-
 const { makeid } = require('./id');
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const pino = require('pino');
-const zlib = require('zlib'); // added for compression
+const crypto = require('crypto');
 
 const {
-default: makeWASocket,
-useMultiFileAuthState,
-Browsers,
-delay,
-makeCacheableSignalKeyStore
+  default: makeWASocket,
+  useMultiFileAuthState,
+  Browsers,
+  delay,
+  makeCacheableSignalKeyStore
 } = require("@whiskeysockets/baileys");
 
 const router = express.Router();
 
-function removeFile(path) {
-if (!fs.existsSync(path)) return;
-fs.rmSync(path, { recursive: true, force: true });
+function removeFile(p) {
+  if (!fs.existsSync(p)) return;
+  fs.rmSync(p, { recursive: true, force: true });
 }
 
 router.get('/', async (req, res) => {
 
-const id = makeid();
-let num = req.query.number;
+  const id = makeid();
+  let num = req.query.number;
 
-if (!num) {
-return res.send({
-error: "Missing number. Example: ?number=254712345678"
-});
-}
+  if (!num) {
+    return res.send({
+      error: "Missing number. Example: ?number=254712345678"
+    });
+  }
 
-num = num.replace(/[^0-9]/g, '');
+  num = num.replace(/[^0-9]/g, '');
 
-async function RAVEN() {
+  async function RAVEN() {
 
-const sessionPath = `./temp/${id}`;
+    const sessionPath = `./temp/${id}`;
 
-const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
-try {
+    try {
 
-const client = makeWASocket({
-auth: {
-creds: state.creds,
-keys: makeCacheableSignalKeyStore(
-state.keys,
-pino({ level: 'fatal' })
-)
-},
-printQRInTerminal: false,
-logger: pino({ level: 'silent' }),
-browser: Browsers.windows('Edge')
-});
+      const client = makeWASocket({
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(
+            state.keys,
+            pino({ level: 'fatal' })
+          )
+        },
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        browser: Browsers.windows('Edge')
+      });
 
-client.ev.on('creds.update', saveCreds);
+      client.ev.on('creds.update', saveCreds);
 
-client.ev.on('connection.update', async (update) => {
+      client.ev.on('connection.update', async (update) => {
 
-const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect } = update;
 
-if (connection === "connecting") {
-console.log("🔄 Connecting to WhatsApp...");
-}
+        if (connection === "connecting") {
+          console.log("🔄 Connecting to WhatsApp...");
+        }
 
-if (connection === "open") {
+        if (connection === "open") {
 
-console.log("✅ Connection Open");
+          console.log("✅ Connection Open");
 
-try {
-await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
-} catch (e) {
-console.log("Group join skipped:", e?.message);
-}
+          try {
+            await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
+          } catch (e) {
+            console.log("Group join skipped:", e?.message);
+          }
 
-await client.sendMessage(client.user.id, {
-text: "Generating your session, please wait..."
-});
+          await client.sendMessage(client.user.id, {
+            text: "Generating your session, please wait..."
+          });
 
-/* Reduced delay (50s → 8s) */
-await delay(8000);
+          await delay(6000);
 
-const credsPath = `${sessionPath}/creds.json`;
+          const credsPath = `${sessionPath}/creds.json`;
 
-if (!fs.existsSync(credsPath)) {
-console.log("creds.json not found");
-return;
-}
+          if (!fs.existsSync(credsPath)) {
+            console.log("creds.json not found");
+            return;
+          }
 
-/* Read creds */
-const data = fs.readFileSync(credsPath);
+          /* Read session */
+          const data = JSON.parse(fs.readFileSync(credsPath));
 
-/* Compress */
-const compressed = zlib.gzipSync(data);
+          /* Generate short session ID */
+          const sessionId = crypto.randomBytes(16).toString("hex");
 
-/* Convert to base64 */
-const b64data = compressed.toString("base64");
+          /* Save real session to server */
+          fs.writeFileSync(
+            path.join(__dirname, "sessions", `${sessionId}.json`),
+            JSON.stringify(data)
+          );
 
-/* Add kish prefix */
-const sessionString = "kish~" + b64data;
+          const shortSession = "kish_" + sessionId;
 
-const session = await client.sendMessage(client.user.id, {
-text: sessionString
-});
+          const session = await client.sendMessage(client.user.id, {
+            text: shortSession
+          });
 
-await client.sendMessage(client.user.id, {
-text: "`Kish-MD has been linked to your WhatsApp account!\n\nDo NOT share this session_id with anyone.\n\nPaste it in SESSION during deploy.\n\nGood luck 🎉`"
-}, { quoted: session });
+          await client.sendMessage(client.user.id, {
+            text:
+              "`Kish-MD has been linked to your WhatsApp account!\n\n" +
+              "Do NOT share this session ID with anyone.\n\n" +
+              "Paste it in SESSION during deploy.\n\n" +
+              "Example:\nSESSION=" + shortSession + "`"
+          }, { quoted: session });
 
-await delay(2000);
+          await delay(2000);
 
-await client.ws.close();
+          await client.ws.close();
 
-removeFile(sessionPath);
-}
+          removeFile(sessionPath);
+        }
 
-if (connection === "close") {
+        if (connection === "close") {
 
-const code = lastDisconnect?.error?.output?.statusCode;
+          const code = lastDisconnect?.error?.output?.statusCode;
 
-console.log("Connection closed:", code);
+          console.log("Connection closed:", code);
 
-if (code !== 401) {
-console.log("🔁 Reconnecting...");
-await delay(5000);
-RAVEN();
-} else {
-removeFile(sessionPath);
-}
+          if (code !== 401) {
+            console.log("🔁 Reconnecting...");
+            await delay(5000);
+            RAVEN();
+          } else {
+            removeFile(sessionPath);
+          }
 
-}
+        }
 
-});
+      });
 
-if (!client.authState.creds.registered) {
+      if (!client.authState.creds.registered) {
 
-await delay(4000);
+        await delay(4000);
 
-const custom = "KISHTECH";
+        const custom = "KISHTECH";
 
-const code = await client.requestPairingCode(num, custom);
+        const code = await client.requestPairingCode(num, custom);
 
-if (!res.headersSent) {
-res.send({ code });
-}
+        if (!res.headersSent) {
+          res.send({ code });
+        }
 
-}
+      }
 
-} catch (err) {
+    } catch (err) {
 
-console.log("service restarted", err);
+      console.log("service restarted", err);
 
-removeFile(sessionPath);
+      removeFile(sessionPath);
 
-if (!res.headersSent) {
-res.send({
-code: "Service Currently Unavailable"
-});
-}
+      if (!res.headersSent) {
+        res.send({
+          code: "Service Currently Unavailable"
+        });
+      }
 
-}
+    }
 
-}
+  }
 
-await RAVEN();
+  await RAVEN();
 
 });
 
 module.exports = router;
-
