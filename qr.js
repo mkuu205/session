@@ -1,4 +1,4 @@
-```js
+
 const { makeid } = require('./id')
 const QRCode = require('qrcode')
 const express = require('express')
@@ -202,4 +202,4 @@ margin-top:20px
 })
 
 module.exports = router
-```
+
