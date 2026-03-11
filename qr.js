@@ -6,96 +6,162 @@ const pino = require('pino')
 const QRCode = require('qrcode')
 
 const {
-default: makeWASocket,
-useMultiFileAuthState,
-Browsers,
-delay,
-makeCacheableSignalKeyStore
+  default: makeWASocket,
+  useMultiFileAuthState,
+  Browsers,
+  delay,
+  makeCacheableSignalKeyStore
 } = require("@whiskeysockets/baileys")
 
 const router = express.Router()
 
 const tempDir = path.join(__dirname, "temp")
+
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
 
-function removeFile(p){
-if(!fs.existsSync(p)) return
-fs.rmSync(p,{recursive:true,force:true})
+function removeFile(p) {
+  if (!fs.existsSync(p)) return
+  fs.rmSync(p, { recursive: true, force: true })
 }
 
-router.get('/', async (req,res)=>{
+router.get('/', async (req, res) => {
 
-const id = makeid()
+  const id = makeid()
 
-/* LOADING SCREEN */
+  async function RAVEN() {
 
-res.send(`
+    const sessionPath = path.join(tempDir, id)
+
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+
+    try {
+
+      const client = makeWASocket({
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(
+            state.keys,
+            pino({ level: "fatal" })
+          )
+        },
+        logger: pino({ level: "silent" }),
+        printQRInTerminal: false,
+        browser: Browsers.macOS("Desktop")
+      })
+
+      client.ev.on('creds.update', saveCreds)
+
+      client.ev.on("connection.update", async (update) => {
+
+        const { connection, lastDisconnect, qr } = update
+
+        /* show QR */
+
+        if (qr && !res.headersSent) {
+
+          const qrImage = await QRCode.toDataURL(qr)
+
+          res.send(`
 <!DOCTYPE html>
 <html>
 <head>
-<title>Kish-MD | Preparing QR</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+<title>Kish-MD | QR CODE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
-
-body{
+body {
 display:flex;
 justify-content:center;
 align-items:center;
-height:100vh;
+min-height:100vh;
 margin:0;
-background:#000;
-font-family:Arial;
-color:white;
+background-color:#000;
+font-family:Arial,sans-serif;
+color:#fff;
 text-align:center;
+padding:20px;
+box-sizing:border-box;
 }
 
-.container{
-max-width:400px;
+.container {
+width:100%;
+max-width:600px;
 }
 
-.loader{
-width:80px;
-height:80px;
-border-radius:50%;
-border:6px solid rgba(255,255,255,0.1);
-border-top:6px solid #9d50bb;
-animation:spin 1s linear infinite;
-margin:30px auto;
+.qr-container {
+position:relative;
+margin:20px auto;
+width:300px;
+height:300px;
+display:flex;
+justify-content:center;
+align-items:center;
 }
 
-@keyframes spin{
-0%{transform:rotate(0deg);}
-100%{transform:rotate(360deg);}
+.qr-code {
+width:300px;
+height:300px;
+padding:10px;
+background:white;
+border-radius:20px;
+box-shadow:
+0 0 0 10px rgba(255,255,255,0.1),
+0 0 0 20px rgba(255,255,255,0.05),
+0 0 30px rgba(255,255,255,0.2);
 }
 
-h1{
+.qr-code img {
+width:100%;
+height:100%;
+}
+
+h1 {
+margin:0 0 15px 0;
 font-size:28px;
-margin-bottom:10px;
+font-weight:800;
+text-shadow:0 0 10px rgba(255,255,255,0.3);
 }
 
-p{
-color:#aaa;
+p {
+color:#ccc;
+margin:20px 0;
+font-size:16px;
 }
 
-.dots span{
-animation:blink 1.4s infinite;
+.back-btn {
+display:inline-block;
+padding:12px 25px;
+margin-top:15px;
+background:linear-gradient(135deg,#6e48aa 0%,#9d50bb 100%);
+color:white;
+text-decoration:none;
+border-radius:30px;
 font-weight:bold;
+border:none;
+cursor:pointer;
+transition:all 0.3s ease;
+box-shadow:0 4px 15px rgba(0,0,0,0.2);
 }
 
-.dots span:nth-child(2){
-animation-delay:0.2s;
+.back-btn:hover {
+transform:translateY(-2px);
+box-shadow:0 6px 20px rgba(0,0,0,0.3);
 }
 
-.dots span:nth-child(3){
-animation-delay:0.4s;
+.pulse {
+animation:pulse 2s infinite;
 }
 
-@keyframes blink{
-0%,80%,100%{opacity:0;}
-40%{opacity:1;}
+@keyframes pulse {
+0% { box-shadow:0 0 0 0 rgba(255,255,255,0.4); }
+70% { box-shadow:0 0 0 15px rgba(255,255,255,0); }
+100% { box-shadow:0 0 0 0 rgba(255,255,255,0); }
 }
 
+@media (max-width:480px) {
+.qr-container { width:260px; height:260px; }
+.qr-code { width:220px; height:220px; }
+h1 { font-size:24px; }
+}
 </style>
 </head>
 
@@ -103,166 +169,115 @@ animation-delay:0.4s;
 
 <div class="container">
 
-<h1>Kish-MD</h1>
+<h1>Kish-MD QR CODE</h1>
 
-<div class="loader"></div>
+<div class="qr-container">
+<div class="qr-code pulse">
+<img src="${qrImage}" alt="QR Code"/>
+</div>
+</div>
 
-<p>
-Preparing QR Code
-<span class="dots">
-<span>.</span>
-<span>.</span>
-<span>.</span>
-</span>
-</p>
+<p>Scan this QR code with your WhatsApp to connect</p>
+
+<a href="./" class="back-btn">Back</a>
 
 </div>
+
+<script>
+document.querySelector('.back-btn').addEventListener('mousedown',function(){
+this.style.transform='translateY(1px)'
+this.style.boxShadow='0 2px 10px rgba(0,0,0,0.2)'
+})
+
+document.querySelector('.back-btn').addEventListener('mouseup',function(){
+this.style.transform='translateY(-2px)'
+this.style.boxShadow='0 6px 20px rgba(0,0,0,0.3)'
+})
+</script>
 
 </body>
 </html>
 `)
+        }
 
-async function RAVEN(){
+        /* connection open */
 
-const sessionPath = path.join(tempDir,id)
+        if (connection === "open") {
 
-const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+          console.log("Connected")
 
-try{
+          await client.sendMessage(client.user.id, {
+            text: "Generating your session_id... please wait"
+          })
 
-const client = makeWASocket({
-auth:{
-creds: state.creds,
-keys: makeCacheableSignalKeyStore(
-state.keys,
-pino({level:"fatal"})
-)
-},
-logger:pino({level:"silent"}),
-printQRInTerminal:false,
-browser:Browsers.macOS("Desktop")
-})
+          await delay(5000)
 
-client.ev.on('creds.update', saveCreds)
+          const credsPath = path.join(sessionPath, "creds.json")
 
-client.ev.on("connection.update", async(update)=>{
+          const data = fs.readFileSync(credsPath)
 
-const {connection,lastDisconnect,qr} = update
+          const session = Buffer.from(data).toString("base64")
 
-/* QR GENERATED */
+          const msg = await client.sendMessage(client.user.id, {
+            text: session
+          })
 
-if(qr){
-
-const qrImage = await QRCode.toDataURL(qr)
-
-/* send QR page */
-
-res.write(`
-<script>
-document.body.innerHTML=\`
-
-<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;font-family:Arial;color:white;text-align:center;padding:20px;box-sizing:border-box">
-
-<div style="max-width:600px;width:100%">
-
-<h1 style="font-size:28px;font-weight:800">Kish-MD QR CODE</h1>
-
-<div style="margin:20px auto;width:300px;height:300px">
-
-<div style="width:300px;height:300px;padding:10px;background:white;border-radius:20px;box-shadow:0 0 0 10px rgba(255,255,255,0.1),0 0 0 20px rgba(255,255,255,0.05),0 0 30px rgba(255,255,255,0.2)">
-
-<img src="${qrImage}" style="width:100%;height:100%">
-
-</div>
-
-</div>
-
-<p style="color:#ccc">Scan this QR code with WhatsApp to connect</p>
-
-<a href="./" style="display:inline-block;padding:12px 25px;margin-top:15px;background:linear-gradient(135deg,#6e48aa 0%,#9d50bb 100%);color:white;text-decoration:none;border-radius:30px;font-weight:bold">Back</a>
-
-</div>
-
-</div>
-\`
-</script>
-`)
-
-}
-
-/* CONNECTED */
-
-if(connection==="open"){
-
-console.log("Connected")
-
-await client.sendMessage(client.user.id,{
-text:"Generating your session_id... please wait"
-})
-
-await delay(5000)
-
-const credsPath = path.join(sessionPath,"creds.json")
-
-const data = fs.readFileSync(credsPath)
-
-const session = Buffer.from(data).toString("base64")
-
-const msg = await client.sendMessage(client.user.id,{
-text: session
-})
-
-await client.sendMessage(client.user.id,{
-text:
+          await client.sendMessage(client.user.id, {
+            text:
 `Kish-MD has been linked to your WhatsApp account!
 
 Do NOT share this session ID with anyone.
 
-Paste it in SESSION during deploy.
+Paste it in your deploy config as SESSION.
 
 Enjoy using Kish-MD 🎉`
-},{quoted:msg})
+          }, { quoted: msg })
 
-await delay(2000)
+          await delay(2000)
 
-await client.ws.close()
+          await client.ws.close()
 
-await delay(3000)
+          await delay(3000)
 
-removeFile(sessionPath)
+          removeFile(sessionPath)
+        }
 
-}
+        /* reconnect logic */
 
-/* CONNECTION CLOSED */
+        if (connection === "close") {
 
-if(connection==="close"){
+          const code = lastDisconnect?.error?.output?.statusCode
 
-const code = lastDisconnect?.error?.output?.statusCode
+          console.log("Connection closed:", code)
 
-console.log("Connection closed:",code)
+          if (code !== 401) {
+            await delay(5000)
+            RAVEN()
+          } else {
+            removeFile(sessionPath)
+          }
 
-if(code!==401){
-await delay(5000)
-RAVEN()
-}else{
-removeFile(sessionPath)
-}
+        }
 
-}
+      })
 
-})
+    } catch (err) {
 
-}catch(err){
+      console.log(err)
 
-console.log(err)
+      removeFile(sessionPath)
 
-removeFile(sessionPath)
+      if (!res.headersSent) {
+        res.send({
+          error: "Service Currently Unavailable"
+        })
+      }
 
-}
+    }
 
-}
+  }
 
-RAVEN()
+  await RAVEN()
 
 })
 
