@@ -16,6 +16,16 @@ const {
 
 const router = express.Router();
 
+/* ensure folders exist */
+
+const sessionsDir = path.join(__dirname, "sessions");
+const tempDir = path.join(__dirname, "temp");
+
+if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir);
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+
+/* delete folder safely */
+
 function removeFile(p) {
   if (!fs.existsSync(p)) return;
   fs.rmSync(p, { recursive: true, force: true });
@@ -36,7 +46,7 @@ router.get('/', async (req, res) => {
 
   async function RAVEN() {
 
-    const sessionPath = `./temp/${id}`;
+    const sessionPath = path.join(tempDir, id);
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
@@ -69,35 +79,40 @@ router.get('/', async (req, res) => {
 
           console.log("✅ Connection Open");
 
-          try {
-            await client.groupAcceptInvite("LhBwWwQAS4y93XOsCKpxdv");
-          } catch (e) {
-            console.log("Group join skipped:", e?.message);
-          }
-
           await client.sendMessage(client.user.id, {
             text: "Generating your session, please wait..."
           });
 
-          await delay(6000);
+          const credsPath = path.join(sessionPath, "creds.json");
 
-          const credsPath = `${sessionPath}/creds.json`;
+          let sessionData = null;
 
-          if (!fs.existsSync(credsPath)) {
-            console.log("creds.json not found");
-            return;
+          /* wait until creds.json is fully written */
+
+          while (!sessionData) {
+
+            if (fs.existsSync(credsPath)) {
+
+              const raw = fs.readFileSync(credsPath);
+
+              if (raw && raw.length > 100) {
+                sessionData = JSON.parse(raw);
+                break;
+              }
+
+            }
+
+            await delay(1000);
+
           }
 
-          /* Read session */
-          const data = JSON.parse(fs.readFileSync(credsPath));
+          /* generate short session id */
 
-          /* Generate short session ID */
           const sessionId = crypto.randomBytes(16).toString("hex");
 
-          /* Save real session to server */
           fs.writeFileSync(
-            path.join(__dirname, "sessions", `${sessionId}.json`),
-            JSON.stringify(data)
+            path.join(sessionsDir, `${sessionId}.json`),
+            JSON.stringify(sessionData)
           );
 
           const shortSession = "kish_" + sessionId;
@@ -118,6 +133,10 @@ router.get('/', async (req, res) => {
 
           await client.ws.close();
 
+          /* prevent ENOENT crash */
+
+          await delay(3000);
+
           removeFile(sessionPath);
         }
 
@@ -132,6 +151,7 @@ router.get('/', async (req, res) => {
             await delay(5000);
             RAVEN();
           } else {
+            await delay(3000);
             removeFile(sessionPath);
           }
 
@@ -141,11 +161,9 @@ router.get('/', async (req, res) => {
 
       if (!client.authState.creds.registered) {
 
-        await delay(4000);
+        await delay(3000);
 
-        const custom = "KISHTECH";
-
-        const code = await client.requestPairingCode(num, custom);
+        const code = await client.requestPairingCode(num, "KISHTECH");
 
         if (!res.headersSent) {
           res.send({ code });
@@ -156,6 +174,8 @@ router.get('/', async (req, res) => {
     } catch (err) {
 
       console.log("service restarted", err);
+
+      await delay(3000);
 
       removeFile(sessionPath);
 
@@ -174,3 +194,4 @@ router.get('/', async (req, res) => {
 });
 
 module.exports = router;
+
