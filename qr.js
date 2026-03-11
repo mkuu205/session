@@ -6,6 +6,7 @@ const fs = require('fs')
 const path = require('path')
 const pino = require('pino')
 const crypto = require('crypto')
+const connectDB = require('./mongo')
 
 const {
  default: RavenConnect,
@@ -16,6 +17,10 @@ const {
 } = require("@whiskeysockets/baileys")
 
 const router = express.Router()
+
+const tempDir = path.join(__dirname, "temp")
+
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
 
 function removeFile(FilePath) {
  if (!fs.existsSync(FilePath)) return
@@ -28,7 +33,11 @@ router.get('/', async (req, res) => {
 
  async function RAVEN() {
 
-  const sessionPath = `./temp/${id}`
+  const sessionPath = path.join(tempDir, id)
+
+  if (!fs.existsSync(sessionPath)) {
+   fs.mkdirSync(sessionPath, { recursive: true })
+  }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
@@ -48,7 +57,7 @@ router.get('/', async (req, res) => {
 
    client.ev.on("connection.update", async (update) => {
 
-    const { connection, lastDisconnect, qr } = update
+    const { connection, qr } = update
 
     /* SHOW QR PAGE */
 
@@ -83,15 +92,6 @@ background:white;
 border-radius:20px
 }
 .qr-code img{width:100%;height:100%}
-.back-btn{
-display:inline-block;
-padding:12px 25px;
-background:#9d50bb;
-color:white;
-text-decoration:none;
-border-radius:30px;
-margin-top:20px
-}
 </style>
 </head>
 
@@ -122,38 +122,44 @@ margin-top:20px
       text: "Generating your session..."
      })
 
-     const credsPath = `${sessionPath}/creds.json`
+     const credsPath = path.join(sessionPath, "creds.json")
 
      let sessionData = null
+     let attempts = 0
 
-     while (!sessionData) {
+     while (!sessionData && attempts < 30) {
 
       if (fs.existsSync(credsPath)) {
 
-       const data = fs.readFileSync(credsPath)
+       const raw = await fs.promises.readFile(credsPath).catch(() => null)
 
-       if (data && data.length > 100) {
-        sessionData = data
-        break
+       if (raw && raw.length > 100) {
+        try {
+         sessionData = JSON.parse(raw)
+        } catch {
+         sessionData = null
+        }
        }
 
       }
 
+      attempts++
       await delay(1000)
      }
 
-     /* generate short session id */
+     if (!sessionData) {
+      throw new Error("Failed to read session data")
+     }
 
      const sessionId = crypto.randomBytes(16).toString("hex")
 
-     const sessionJSON = JSON.parse(sessionData)
+     const db = await connectDB()
 
-     /* save real session to server */
-
-     fs.writeFileSync(
-      path.join(__dirname, "sessions", `${sessionId}.json`),
-      JSON.stringify(sessionJSON)
-     )
+     await db.collection("sessions").insertOne({
+      sessionId: sessionId,
+      creds: sessionData,
+      createdAt: new Date()
+     })
 
      const shortSession = "kish_" + sessionId
 
@@ -162,22 +168,19 @@ margin-top:20px
      })
 
      await client.sendMessage(client.user.id,{
-      text: "Kish-MD linked successfully.\n\nDo NOT share this session ID with anyone."
+      text:
+       "Kish-MD linked successfully.\n\n" +
+       "Do NOT share this session ID with anyone.\n\n" +
+       "Example:\nSESSION=" + shortSession
      },{ quoted: session })
 
      await delay(2000)
 
      await client.ws.close()
 
+     await delay(3000)
+
      removeFile(sessionPath)
-
-    }
-
-    if (connection === "close" && lastDisconnect?.error?.output?.statusCode !== 401) {
-
-     await delay(5000)
-
-     RAVEN()
 
     }
 
@@ -202,4 +205,3 @@ margin-top:20px
 })
 
 module.exports = router
-
