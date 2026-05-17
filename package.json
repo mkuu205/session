@@ -13,9 +13,8 @@
   "author": "Nick",
   "license": "GPL-3.0",
   "dependencies": {
-    "@whiskeysockets/baileys": "npm:wileys",
+    "@whiskeysockets/baileys": "^6.7.18",
     "maher-zubair-baileys": "^6.6.5",
-    "baileys-elite": "^0.0.4",
     "qrcode": "^1.5.3",
     "awesome-phonenumber": "^2.64.0",
     "pino": "^8.1.0",
