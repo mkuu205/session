@@ -21,7 +21,9 @@ const router = express.Router();
 
 const tempDir = path.join(__dirname, "temp");
 
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
 
 /* delete folder safely */
 
@@ -31,7 +33,6 @@ function removeFile(p) {
 }
 
 router.get('/', async (req, res) => {
-
   const id = makeid();
   let num = req.query.number;
 
@@ -44,12 +45,16 @@ router.get('/', async (req, res) => {
   num = num.replace(/[^0-9]/g, '');
 
   async function RAVEN() {
-
     const sessionPath = path.join(tempDir, id);
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    /* FIX: ensure session folder exists */
+
+    if (!fs.existsSync(sessionPath)) {
+      fs.mkdirSync(sessionPath, { recursive: true });
+    }
 
     try {
+      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
       const client = makeWASocket({
         auth: {
@@ -67,7 +72,6 @@ router.get('/', async (req, res) => {
       client.ev.on('creds.update', saveCreds);
 
       client.ev.on('connection.update', async (update) => {
-
         const { connection, lastDisconnect } = update;
 
         if (connection === "connecting") {
@@ -75,7 +79,6 @@ router.get('/', async (req, res) => {
         }
 
         if (connection === "open") {
-
           console.log("✅ Connection Open");
 
           const db = await connectDB();
@@ -85,31 +88,22 @@ router.get('/', async (req, res) => {
           });
 
           const credsPath = path.join(sessionPath, "creds.json");
-
           let sessionData = null;
 
           while (!sessionData) {
-
             if (fs.existsSync(credsPath)) {
-
               const raw = fs.readFileSync(credsPath);
 
               if (raw && raw.length > 100) {
                 sessionData = JSON.parse(raw);
                 break;
               }
-
             }
 
             await delay(1000);
-
           }
 
-          /* generate session id */
-
           const sessionId = crypto.randomBytes(16).toString("hex");
-
-          /* store session in MongoDB */
 
           await db.collection("sessions").insertOne({
             id: sessionId,
@@ -132,42 +126,32 @@ router.get('/', async (req, res) => {
 
           await delay(2000);
 
-          await client.ws.close();
+          try {
+            await client.ws.close();
+          } catch {}
 
           await delay(3000);
 
           removeFile(sessionPath);
-
         }
 
         if (connection === "close") {
-
           const code = lastDisconnect?.error?.output?.statusCode;
 
           console.log("Connection closed:", code);
 
           if (code !== 401) {
-
             console.log("🔁 Reconnecting...");
-
             await delay(5000);
-
-            RAVEN();
-
+            return RAVEN();
           } else {
-
             await delay(3000);
-
             removeFile(sessionPath);
-
           }
-
         }
-
       });
 
       if (!client.authState.creds.registered) {
-
         await delay(3000);
 
         const code = await client.requestPairingCode(num, "KISHTECH");
@@ -175,11 +159,9 @@ router.get('/', async (req, res) => {
         if (!res.headersSent) {
           res.send({ code });
         }
-
       }
 
     } catch (err) {
-
       console.log("service restarted", err);
 
       await delay(3000);
@@ -191,13 +173,10 @@ router.get('/', async (req, res) => {
           code: "Service Currently Unavailable"
         });
       }
-
     }
-
   }
 
   await RAVEN();
-
 });
 
 module.exports = router;
